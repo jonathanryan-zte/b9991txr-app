@@ -318,6 +318,58 @@
     color: var(--accent);
   }
 
+  .scan-thumb-btn {
+    appearance: none;
+    border: none;
+    padding: 0;
+    background: transparent;
+    cursor: zoom-in;
+    flex-shrink: 0;
+  }
+
+  .scan-thumb-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .lightbox {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 9, 7, 0.88);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    z-index: 1000;
+  }
+
+  .lightbox img {
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 6px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  }
+
+  .lightbox-close {
+    position: absolute;
+    top: 16px;
+    right: 20px;
+    appearance: none;
+    border: none;
+    background: rgba(255,255,255,0.12);
+    color: #fff;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .lightbox-close:hover {
+    background: rgba(255,255,255,0.22);
+  }
+
   .scan-raw {
     margin-top: 8px;
     display: flex;
@@ -624,11 +676,14 @@
           </button>
         </div>
         <div class="scan-preview" id="uj-scan-preview" hidden>
-          <img id="uj-scan-img" alt="Preview foto surat jalan">
+          <button type="button" class="scan-thumb-btn" id="uj-scan-zoom" aria-label="Perbesar foto">
+            <img id="uj-scan-img" alt="Preview foto surat jalan">
+          </button>
           <div class="scan-preview-body">
             <div class="scan-status" id="uj-scan-status">Membaca teks&hellip;</div>
             <div class="scan-progress" id="uj-scan-progress"><div class="scan-progress-bar" id="uj-scan-progress-bar"></div></div>
             <div class="scan-actions" id="uj-scan-actions" hidden>
+              <button type="button" class="scan-mini-btn" id="uj-scan-zoom-btn">Perbesar Foto</button>
               <button type="button" class="scan-mini-btn" id="uj-scan-rotate">Putar 90&deg;</button>
               <button type="button" class="scan-mini-btn" id="uj-scan-rescan">Scan Ulang</button>
               <button type="button" class="scan-mini-btn" id="uj-scan-remove">Hapus</button>
@@ -733,6 +788,11 @@
 
 </div>
 
+<div class="lightbox" id="lightbox" hidden>
+  <button type="button" class="lightbox-close" id="lightbox-close" aria-label="Tutup">&times;</button>
+  <img id="lightbox-img" alt="Foto surat jalan diperbesar">
+</div>
+
 <script>
   const ENDPOINT = "https://script.google.com/macros/s/AKfycbwVwW6IJA_A3m59pBA4_v71KWKgJ-G2JOsqpWUr1HWp-vB9r-4uhXf517IZjvQJeSWG/exec";
 
@@ -805,7 +865,25 @@
   const ujScanRaw = document.getElementById("uj-scan-raw");
   const ujScanRawText = document.getElementById("uj-scan-raw-text");
   const ujScanRawCopy = document.getElementById("uj-scan-raw-copy");
+  const ujScanZoomThumb = document.getElementById("uj-scan-zoom");
+  const ujScanZoomBtn = document.getElementById("uj-scan-zoom-btn");
+  const lightbox = document.getElementById("lightbox");
+  const lightboxImg = document.getElementById("lightbox-img");
+  const lightboxClose = document.getElementById("lightbox-close");
   let lastOcrText = "";
+
+  function openLightbox() {
+    lightboxImg.src = ujScanImg.src;
+    lightbox.hidden = false;
+  }
+  function closeLightbox() {
+    lightbox.hidden = true;
+  }
+  ujScanZoomThumb.addEventListener("click", openLightbox);
+  ujScanZoomBtn.addEventListener("click", openLightbox);
+  lightboxClose.addEventListener("click", closeLightbox);
+  lightbox.addEventListener("click", (e) => { if (e.target === lightbox) closeLightbox(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeLightbox(); });
 
   ujScanRawToggle.addEventListener("click", () => {
     ujScanRaw.hidden = !ujScanRaw.hidden;
