@@ -318,6 +318,28 @@
     color: var(--accent);
   }
 
+  .scan-raw {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .scan-raw pre {
+    margin: 0;
+    background: var(--surface-sunken);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 10px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--ink);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
   .scan-note {
     margin: 6px 0 0;
     font-size: 11.5px;
@@ -610,8 +632,13 @@
               <button type="button" class="scan-mini-btn" id="uj-scan-rotate">Putar 90&deg;</button>
               <button type="button" class="scan-mini-btn" id="uj-scan-rescan">Scan Ulang</button>
               <button type="button" class="scan-mini-btn" id="uj-scan-remove">Hapus</button>
+              <button type="button" class="scan-mini-btn" id="uj-scan-raw-toggle">Lihat Teks Mentah</button>
             </div>
           </div>
+        </div>
+        <div class="scan-raw" id="uj-scan-raw" hidden>
+          <pre id="uj-scan-raw-text"></pre>
+          <button type="button" class="scan-mini-btn" id="uj-scan-raw-copy">Salin Teks</button>
         </div>
         <p class="scan-note">Foto hanya dipakai untuk membaca teks di HP ini &mdash; tidak diupload ke mana pun.</p>
       </div>
@@ -774,6 +801,25 @@
   const ujScanRotateBtn = document.getElementById("uj-scan-rotate");
   const ujScanRescanBtn = document.getElementById("uj-scan-rescan");
   const ujScanRemoveBtn = document.getElementById("uj-scan-remove");
+  const ujScanRawToggle = document.getElementById("uj-scan-raw-toggle");
+  const ujScanRaw = document.getElementById("uj-scan-raw");
+  const ujScanRawText = document.getElementById("uj-scan-raw-text");
+  const ujScanRawCopy = document.getElementById("uj-scan-raw-copy");
+  let lastOcrText = "";
+
+  ujScanRawToggle.addEventListener("click", () => {
+    ujScanRaw.hidden = !ujScanRaw.hidden;
+    ujScanRawText.textContent = lastOcrText || "(kosong)";
+  });
+  ujScanRawCopy.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(lastOcrText);
+      ujScanRawCopy.textContent = "Tersalin!";
+      setTimeout(() => { ujScanRawCopy.textContent = "Salin Teks"; }, 1500);
+    } catch (err) {
+      ujScanRawCopy.textContent = "Gagal, salin manual";
+    }
+  });
 
   let ocrWorkerPromise = null;
   function getOcrWorker() {
@@ -939,6 +985,7 @@
       ujScanImg.src = rotatedDataUrl;
       const worker = await getOcrWorker();
       const { data } = await worker.recognize(rotatedDataUrl);
+      lastOcrText = data.text;
       applyScanResult(parseSpr(data.text));
     } catch (err) {
       ujScanStatus.innerHTML = `<span class="miss">Gagal membaca foto: ${err.message}</span>`;
@@ -954,6 +1001,8 @@
     ujScanInput.value = "";
     ujScanPreview.hidden = true;
     ujScanEmpty.hidden = false;
+    ujScanRaw.hidden = true;
+    lastOcrText = "";
   }
 
   ujScanBtn.addEventListener("click", () => ujScanInput.click());
