@@ -332,42 +332,77 @@
     outline-offset: 2px;
   }
 
-  .lightbox {
-    position: fixed;
-    inset: 0;
-    background: rgba(10, 9, 7, 0.88);
+  .scan-accordion {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .scan-accordion.open {
+    grid-template-rows: 1fr;
+  }
+
+  .scan-accordion-inner {
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  .scan-accordion-card {
+    margin-bottom: 20px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+    opacity: 0;
+    transform: translateY(-6px);
+    transition: opacity 0.28s ease 0.05s, transform 0.28s ease 0.05s;
+  }
+
+  .scan-accordion.open .scan-accordion-card {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .scan-accordion-bar {
     display: flex;
     align-items: center;
-    justify-content: center;
-    padding: 24px;
-    z-index: 1000;
+    justify-content: space-between;
+    padding: 10px 12px;
+    background: var(--surface-sunken);
+    border-bottom: 1px solid var(--line);
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--ink-muted);
   }
 
-  .lightbox img {
-    max-width: 100%;
-    max-height: 100%;
-    border-radius: 6px;
-    box-shadow: 0 12px 40px rgba(0,0,0,0.5);
-  }
-
-  .lightbox-close {
-    position: absolute;
-    top: 16px;
-    right: 20px;
+  .scan-accordion-bar button {
     appearance: none;
     border: none;
-    background: rgba(255,255,255,0.12);
-    color: #fff;
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    font-size: 24px;
+    background: transparent;
+    color: var(--ink-muted);
+    font-size: 18px;
     line-height: 1;
     cursor: pointer;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
   }
 
-  .lightbox-close:hover {
-    background: rgba(255,255,255,0.22);
+  .scan-accordion-bar button:hover {
+    background: var(--line);
+    color: var(--ink);
+  }
+
+  .scan-accordion img {
+    display: block;
+    width: 100%;
+    max-height: 60vh;
+    object-fit: contain;
+    background: #111;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .scan-accordion, .scan-accordion-card { transition: none; }
   }
 
   .scan-raw {
@@ -615,6 +650,18 @@
     <button class="tab" data-panel="tagihan" role="tab" aria-selected="false">Tagihan &amp; Cicilan</button>
   </div>
 
+  <div class="scan-accordion" id="scan-accordion">
+    <div class="scan-accordion-inner">
+      <div class="scan-accordion-card">
+        <div class="scan-accordion-bar">
+          <span>Foto Surat Jalan</span>
+          <button type="button" id="scan-accordion-close" aria-label="Tutup">&times;</button>
+        </div>
+        <img id="scan-accordion-img" alt="Foto surat jalan">
+      </div>
+    </div>
+  </div>
+
   <!-- PERBAIKAN -->
   <div class="card panel active" id="panel-perbaikan">
     <div class="card-head">
@@ -788,9 +835,15 @@
 
 </div>
 
-<div class="lightbox" id="lightbox" hidden>
-  <button type="button" class="lightbox-close" id="lightbox-close" aria-label="Tutup">&times;</button>
-  <img id="lightbox-img" alt="Foto surat jalan diperbesar">
+<div class="float-preview" id="float-preview" hidden>
+  <div class="float-preview-bar" id="float-preview-bar">
+    <span class="float-preview-label">&#9776; Foto Surat Jalan &mdash; geser saya</span>
+    <div class="float-preview-controls">
+      <button type="button" id="float-preview-resize" aria-label="Perbesar/perkecil">&#x2922;</button>
+      <button type="button" id="float-preview-close" aria-label="Tutup">&times;</button>
+    </div>
+  </div>
+  <img id="float-preview-img" alt="Foto surat jalan">
 </div>
 
 <script>
@@ -808,6 +861,7 @@
       tab.classList.add("active");
       tab.setAttribute("aria-selected", "true");
       document.getElementById("panel-" + tab.dataset.panel).classList.add("active");
+      if (tab.dataset.panel !== "uangjalan") closeScanAccordion();
     });
   });
 
@@ -867,23 +921,33 @@
   const ujScanRawCopy = document.getElementById("uj-scan-raw-copy");
   const ujScanZoomThumb = document.getElementById("uj-scan-zoom");
   const ujScanZoomBtn = document.getElementById("uj-scan-zoom-btn");
-  const lightbox = document.getElementById("lightbox");
-  const lightboxImg = document.getElementById("lightbox-img");
-  const lightboxClose = document.getElementById("lightbox-close");
+  const scanAccordion = document.getElementById("scan-accordion");
+  const scanAccordionImg = document.getElementById("scan-accordion-img");
+  const scanAccordionClose = document.getElementById("scan-accordion-close");
   let lastOcrText = "";
 
-  function openLightbox() {
-    lightboxImg.src = ujScanImg.src;
-    lightbox.hidden = false;
+  function setZoomBtnLabel(open) {
+    ujScanZoomBtn.textContent = open ? "Kecilkan Foto" : "Perbesar Foto";
   }
-  function closeLightbox() {
-    lightbox.hidden = true;
+  function openScanAccordion() {
+    scanAccordionImg.src = ujScanImg.src;
+    scanAccordion.classList.add("open");
+    setZoomBtnLabel(true);
   }
-  ujScanZoomThumb.addEventListener("click", openLightbox);
-  ujScanZoomBtn.addEventListener("click", openLightbox);
-  lightboxClose.addEventListener("click", closeLightbox);
-  lightbox.addEventListener("click", (e) => { if (e.target === lightbox) closeLightbox(); });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeLightbox(); });
+  function closeScanAccordion() {
+    scanAccordion.classList.remove("open");
+    setZoomBtnLabel(false);
+  }
+  function toggleScanAccordion() {
+    if (scanAccordion.classList.contains("open")) {
+      closeScanAccordion();
+    } else {
+      openScanAccordion();
+    }
+  }
+  ujScanZoomThumb.addEventListener("click", toggleScanAccordion);
+  ujScanZoomBtn.addEventListener("click", toggleScanAccordion);
+  scanAccordionClose.addEventListener("click", closeScanAccordion);
 
   ujScanRawToggle.addEventListener("click", () => {
     ujScanRaw.hidden = !ujScanRaw.hidden;
@@ -1126,6 +1190,7 @@
     ujScanEmpty.hidden = false;
     ujScanRaw.hidden = true;
     lastOcrText = "";
+    closeScanAccordion();
   }
 
   ujScanBtn.addEventListener("click", () => ujScanInput.click());
