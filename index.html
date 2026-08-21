@@ -2,6 +2,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 
 <style>
   :root {
@@ -311,62 +312,87 @@
     outline-offset: 2px;
   }
 
-  .photo-preview {
+  .lookup-hint {
+    margin: 2px 0 0;
+    font-size: 11.5px;
+    color: var(--accent);
+  }
+
+  .scan-note {
+    margin: 6px 0 0;
+    font-size: 11.5px;
+    color: var(--ink-faint);
+  }
+
+  .scan-preview {
     display: flex;
-    align-items: center;
     gap: 10px;
     background: var(--surface-sunken);
     border: 1px solid var(--line);
     border-radius: 8px;
-    padding: 8px;
+    padding: 10px;
   }
 
-  .photo-preview img {
-    width: 46px;
-    height: 46px;
+  .scan-preview img {
+    width: 56px;
+    height: 56px;
     object-fit: cover;
     border-radius: 6px;
     border: 1px solid var(--line);
     flex-shrink: 0;
   }
 
-  .photo-preview-meta {
+  .scan-preview-body {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 6px;
     min-width: 0;
     flex: 1;
   }
 
-  .photo-preview-meta span:first-child {
-    font-size: 13px;
+  .scan-status {
+    font-size: 12.5px;
     color: var(--ink);
-    white-space: nowrap;
+    line-height: 1.4;
+  }
+
+  .scan-status b { color: var(--accent); }
+  .scan-status .miss { color: var(--ink-faint); }
+
+  .scan-progress {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--line);
     overflow: hidden;
-    text-overflow: ellipsis;
   }
 
-  .photo-preview-size {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--ink-faint);
+  .scan-progress-bar {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    transition: width 0.2s ease;
   }
 
-  .photo-remove {
+  .scan-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .scan-mini-btn {
     appearance: none;
-    background: transparent;
+    background: var(--surface);
     border: 1px solid var(--line);
     color: var(--ink-muted);
     font-family: var(--font-body);
-    font-size: 12px;
+    font-size: 11.5px;
     font-weight: 600;
-    padding: 7px 12px;
+    padding: 6px 10px;
     border-radius: 6px;
     cursor: pointer;
-    flex-shrink: 0;
   }
 
-  .photo-remove:hover {
+  .scan-mini-btn:hover {
     border-color: var(--accent);
     color: var(--accent);
   }
@@ -567,6 +593,29 @@
     </div>
     <form id="form-uangjalan" novalidate>
       <div class="field">
+        <label>Scan dari Foto <span class="opt">(otomatis isi Tanggal, No DO, Tujuan &amp; Customer)</span></label>
+        <input type="file" id="uj-scan-input" accept="image/*" hidden>
+        <div class="photo-picker" id="uj-scan-empty">
+          <button type="button" class="photo-btn" id="uj-scan-btn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h3l2-2h6l2 2h3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/></svg>
+            Scan Surat Jalan
+          </button>
+        </div>
+        <div class="scan-preview" id="uj-scan-preview" hidden>
+          <img id="uj-scan-img" alt="Preview foto surat jalan">
+          <div class="scan-preview-body">
+            <div class="scan-status" id="uj-scan-status">Membaca teks&hellip;</div>
+            <div class="scan-progress" id="uj-scan-progress"><div class="scan-progress-bar" id="uj-scan-progress-bar"></div></div>
+            <div class="scan-actions" id="uj-scan-actions" hidden>
+              <button type="button" class="scan-mini-btn" id="uj-scan-rotate">Putar 90&deg;</button>
+              <button type="button" class="scan-mini-btn" id="uj-scan-rescan">Scan Ulang</button>
+              <button type="button" class="scan-mini-btn" id="uj-scan-remove">Hapus</button>
+            </div>
+          </div>
+        </div>
+        <p class="scan-note">Foto hanya dipakai untuk membaca teks di HP ini &mdash; tidak diupload ke mana pun.</p>
+      </div>
+      <div class="field">
         <label for="uj-tanggal">Tanggal</label>
         <input type="date" id="uj-tanggal" required>
       </div>
@@ -583,6 +632,7 @@
       <div class="field">
         <label for="uj-tujuan">Tujuan</label>
         <input type="text" id="uj-tujuan" placeholder="mis. indofood Cibinong" required>
+        <p class="lookup-hint" id="uj-lookup-hint" hidden></p>
       </div>
       <div class="field-row">
         <div class="field">
@@ -598,24 +648,6 @@
             <span class="prefix">Rp</span>
             <input type="number" id="uj-invoice" placeholder="0" min="0" step="1" inputmode="numeric" required>
           </div>
-        </div>
-      </div>
-      <div class="field">
-        <label>Foto Struk / DO <span class="opt">(opsional)</span></label>
-        <input type="file" id="uj-foto" accept="image/*" hidden>
-        <div class="photo-picker" id="uj-photo-empty">
-          <button type="button" class="photo-btn" id="uj-foto-btn">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h3l2-2h6l2 2h3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/></svg>
-            Pilih dari Galeri
-          </button>
-        </div>
-        <div class="photo-preview" id="uj-photo-preview" hidden>
-          <img id="uj-foto-img" alt="Preview foto">
-          <div class="photo-preview-meta">
-            <span id="uj-foto-name">foto.jpg</span>
-            <span id="uj-foto-size" class="photo-preview-size"></span>
-          </div>
-          <button type="button" class="photo-remove" id="uj-foto-remove" aria-label="Hapus foto">Ganti</button>
         </div>
       </div>
       <button type="submit" class="submit">Simpan ke sheet Uang Jalan</button>
@@ -729,72 +761,219 @@
     document.getElementById("count-" + key).textContent = counts[key] + " dicatat sesi ini";
   }
 
-  // ---- foto upload (Uang Jalan) ----
-  const ujFotoInput = document.getElementById("uj-foto");
-  const ujFotoBtn = document.getElementById("uj-foto-btn");
-  const ujPhotoEmpty = document.getElementById("uj-photo-empty");
-  const ujPhotoPreview = document.getElementById("uj-photo-preview");
-  const ujFotoImg = document.getElementById("uj-foto-img");
-  const ujFotoName = document.getElementById("uj-foto-name");
-  const ujFotoSize = document.getElementById("uj-foto-size");
-  const ujFotoRemove = document.getElementById("uj-foto-remove");
-  let uangJalanPhoto = null;
+  // ---- scan OCR (Uang Jalan) ----
+  const ujScanInput = document.getElementById("uj-scan-input");
+  const ujScanBtn = document.getElementById("uj-scan-btn");
+  const ujScanEmpty = document.getElementById("uj-scan-empty");
+  const ujScanPreview = document.getElementById("uj-scan-preview");
+  const ujScanImg = document.getElementById("uj-scan-img");
+  const ujScanStatus = document.getElementById("uj-scan-status");
+  const ujScanProgress = document.getElementById("uj-scan-progress");
+  const ujScanProgressBar = document.getElementById("uj-scan-progress-bar");
+  const ujScanActions = document.getElementById("uj-scan-actions");
+  const ujScanRotateBtn = document.getElementById("uj-scan-rotate");
+  const ujScanRescanBtn = document.getElementById("uj-scan-rescan");
+  const ujScanRemoveBtn = document.getElementById("uj-scan-remove");
 
-  function compressImage(file, maxDim, quality) {
+  let ocrWorkerPromise = null;
+  function getOcrWorker() {
+    if (!ocrWorkerPromise) {
+      ocrWorkerPromise = Tesseract.createWorker("eng", 1, {
+        logger: (m) => {
+          if (m.status === "recognizing text") {
+            ujScanProgressBar.style.width = Math.round(m.progress * 100) + "%";
+          }
+        }
+      });
+    }
+    return ocrWorkerPromise;
+  }
+
+  let ujScanOriginalDataUrl = null;
+  let ujScanRotation = 0;
+
+  function rotateDataUrl(dataUrl, degrees) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const swap = degrees % 180 !== 0;
+        canvas.width = swap ? img.height : img.width;
+        canvas.height = swap ? img.width : img.height;
+        const ctx = canvas.getContext("2d");
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.rotate((degrees * Math.PI) / 180);
+        ctx.drawImage(img, -img.width / 2, -img.height / 2);
+        resolve(canvas.toDataURL("image/jpeg", 0.85));
+      };
+      img.src = dataUrl;
+    });
+  }
+
+  function readFileAsDataUrl(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => {
-          let w = img.width, h = img.height;
-          if (w > maxDim || h > maxDim) {
-            if (w > h) { h = Math.round(h * maxDim / w); w = maxDim; }
-            else { w = Math.round(w * maxDim / h); h = maxDim; }
-          }
-          const canvas = document.createElement("canvas");
-          canvas.width = w;
-          canvas.height = h;
-          canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-          resolve(canvas.toDataURL("image/jpeg", quality));
-        };
-        img.onerror = () => reject(new Error("File bukan gambar yang valid"));
-        img.src = e.target.result;
-      };
+      reader.onload = (e) => resolve(e.target.result);
       reader.onerror = () => reject(new Error("Gagal membaca file"));
       reader.readAsDataURL(file);
     });
   }
 
-  function resetUangJalanPhoto() {
-    uangJalanPhoto = null;
-    ujFotoInput.value = "";
-    ujPhotoPreview.hidden = true;
-    ujPhotoEmpty.hidden = false;
+  function parseSpr(text) {
+    const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+    const result = {};
+
+    const dateMatch = text.match(/(\d{1,2})[.\-\/](\d{1,2})[.\-\/](\d{4})/);
+    if (dateMatch) {
+      const [, d, m, y] = dateMatch;
+      result.tanggal = `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+    }
+
+    // No SPR/SPE (pojok kanan atas) jadi sumber utama No DO/SPE
+    const sprMatch = text.match(/No\.?\s*SP[RE][:\.\s]*([0-9]{4,})/i);
+    if (sprMatch) result.noDoSpe = sprMatch[1];
+    if (!result.noDoSpe) {
+      for (const line of lines) {
+        const m = line.match(/No\.?\s*D\s*[\/il]?\s*[O0][:\.\s]*([0-9]{5,})/i);
+        if (m) { result.noDoSpe = m[1]; break; }
+      }
+    }
+
+    // Tujuan = "Gudang Asal - Tujuan" (mengikuti format yang sudah ada di sheet).
+    // Label "Gudang Asal" dan "Tujuan" ada berdampingan di baris judul kolom,
+    // sedangkan isinya ada di baris berikutnya, jadi dibaca per baris.
+    const gudangHeaderIdx = lines.findIndex((l) => /Gudang\s*Asal/i.test(l));
+    if (gudangHeaderIdx !== -1 && lines[gudangHeaderIdx + 1]) {
+      let valuesLine = lines[gudangHeaderIdx + 1];
+      valuesLine = valuesLine.replace(/\d{1,2}[.\-\/]\d{1,2}[.\-\/]\d{4}/, "");
+      valuesLine = valuesLine.replace(/\b[0-9]{5,}\b/g, "");
+      const words = valuesLine.trim().split(/\s+/).filter(Boolean);
+      if (words.length >= 2) {
+        result.tujuan = `${words.slice(0, -1).join(" ")} - ${words[words.length - 1]}`;
+      } else if (words.length === 1) {
+        result.tujuan = words[0];
+      }
+    }
+    if (!result.tujuan) {
+      for (const line of lines) {
+        const m = line.match(/Tujuan[:\.\s]+(.{3,})/i);
+        if (m) { result.tujuan = m[1].trim(); break; }
+      }
+    }
+
+    for (const line of lines) {
+      const m = line.match(/Langganan[:\.\s]+(.{3,})/i);
+      if (m) { result.customer = m[1].trim(); break; }
+    }
+
+    return result;
   }
 
-  ujFotoBtn.addEventListener("click", () => ujFotoInput.click());
-  ujFotoRemove.addEventListener("click", resetUangJalanPhoto);
+  function applyScanResult(result) {
+    const found = [];
+    const missing = [];
 
-  ujFotoInput.addEventListener("change", async () => {
-    const file = ujFotoInput.files[0];
-    if (!file) return;
-    ujFotoBtn.disabled = true;
-    try {
-      const dataUrl = await compressImage(file, 1600, 0.72);
-      const base64 = dataUrl.split(",")[1];
-      const sizeKB = Math.round((base64.length * 3 / 4) / 1024);
-      const name = (file.name || "foto").replace(/\.[^.]+$/, "") + ".jpg";
-      uangJalanPhoto = { base64, mime: "image/jpeg", name };
-      ujFotoImg.src = dataUrl;
-      ujFotoName.textContent = name;
-      ujFotoSize.textContent = sizeKB + " KB";
-      ujPhotoEmpty.hidden = true;
-      ujPhotoPreview.hidden = false;
-    } catch (err) {
-      setStatus("uangjalan", "err", "Gagal memproses foto: " + err.message);
-    } finally {
-      ujFotoBtn.disabled = false;
+    if (result.tanggal) { document.getElementById("uj-tanggal").value = result.tanggal; found.push("Tanggal"); }
+    else missing.push("Tanggal");
+
+    if (result.noDoSpe) { document.getElementById("uj-nodo").value = result.noDoSpe; found.push("No DO/SPE"); }
+    else missing.push("No DO/SPE");
+
+    if (result.tujuan) { document.getElementById("uj-tujuan").value = result.tujuan; found.push("Tujuan"); }
+    else missing.push("Tujuan");
+
+    if (result.customer) { document.getElementById("uj-customer").value = result.customer; found.push("Customer"); }
+    else missing.push("Customer");
+
+    let html = "";
+    if (found.length) html += `Terisi otomatis: <b>${found.join(", ")}</b>`;
+    if (missing.length) html += `${found.length ? "<br>" : ""}<span class="miss">Tidak terbaca, isi manual: ${missing.join(", ")}</span>`;
+    ujScanStatus.innerHTML = html || "Tidak ada teks yang terbaca &mdash; isi manual.";
+
+    applyTujuanLookup();
+  }
+
+  // ---- lookup histori rute (Uang Jalan & Invoice otomatis) ----
+  const ujLookupHint = document.getElementById("uj-lookup-hint");
+  let tujuanLookup = {};
+
+  fetch(ENDPOINT + "?action=lookup")
+    .then((r) => r.json())
+    .then((data) => { tujuanLookup = data.tujuan || {}; })
+    .catch(() => {});
+
+  function normalizeTujuan(v) {
+    return v.trim().toLowerCase().replace(/\s+/g, " ");
+  }
+
+  function applyTujuanLookup() {
+    const tujuanInput = document.getElementById("uj-tujuan");
+    const key = normalizeTujuan(tujuanInput.value || "");
+    const match = key ? tujuanLookup[key] : null;
+
+    if (!match) {
+      ujLookupHint.hidden = true;
+      return;
     }
+
+    const uangJalanEl = document.getElementById("uj-uangjalan");
+    const invoiceEl = document.getElementById("uj-invoice");
+    if (!uangJalanEl.value) uangJalanEl.value = match.uangJalan;
+    if (!invoiceEl.value) invoiceEl.value = match.invoice;
+
+    ujLookupHint.hidden = false;
+    ujLookupHint.textContent = `Rute pernah dicatat: Uang Jalan & Invoice terisi dari histori (Rp${idr.format(match.uangJalan)} / Rp${idr.format(match.invoice)}), boleh diubah.`;
+  }
+
+  document.getElementById("uj-tujuan").addEventListener("blur", applyTujuanLookup);
+
+  async function runOcr() {
+    ujScanStatus.textContent = "Membaca teks...";
+    ujScanProgress.hidden = false;
+    ujScanProgressBar.style.width = "0%";
+    ujScanActions.hidden = true;
+    try {
+      const rotatedDataUrl = ujScanRotation === 0
+        ? ujScanOriginalDataUrl
+        : await rotateDataUrl(ujScanOriginalDataUrl, ujScanRotation);
+      ujScanImg.src = rotatedDataUrl;
+      const worker = await getOcrWorker();
+      const { data } = await worker.recognize(rotatedDataUrl);
+      applyScanResult(parseSpr(data.text));
+    } catch (err) {
+      ujScanStatus.innerHTML = `<span class="miss">Gagal membaca foto: ${err.message}</span>`;
+    } finally {
+      ujScanProgress.hidden = true;
+      ujScanActions.hidden = false;
+    }
+  }
+
+  function resetScan() {
+    ujScanOriginalDataUrl = null;
+    ujScanRotation = 0;
+    ujScanInput.value = "";
+    ujScanPreview.hidden = true;
+    ujScanEmpty.hidden = false;
+  }
+
+  ujScanBtn.addEventListener("click", () => ujScanInput.click());
+  ujScanRemoveBtn.addEventListener("click", resetScan);
+  ujScanRescanBtn.addEventListener("click", runOcr);
+  ujScanRotateBtn.addEventListener("click", async () => {
+    ujScanRotation = (ujScanRotation + 90) % 360;
+    const rotated = await rotateDataUrl(ujScanOriginalDataUrl, ujScanRotation);
+    ujScanImg.src = rotated;
+  });
+
+  ujScanInput.addEventListener("change", async () => {
+    const file = ujScanInput.files[0];
+    if (!file) return;
+    ujScanRotation = 0;
+    ujScanOriginalDataUrl = await readFileAsDataUrl(file);
+    ujScanImg.src = ujScanOriginalDataUrl;
+    ujScanEmpty.hidden = true;
+    ujScanPreview.hidden = false;
+    await runOcr();
   });
 
   async function sendToSheet(payload) {
@@ -820,7 +999,7 @@
         return;
       }
       btn.disabled = true;
-      btn.textContent = "Menyimpan…";
+      btn.textContent = "Menyimpan...";
       try {
         const result = await sendToSheet({ sheet: sheetName, ...payload });
         setStatus(key, "ok", `Tersimpan &middot; baris <b>${result.row}</b> di sheet ${sheetName.replace("_"," ")}`);
@@ -832,7 +1011,7 @@
         setStatus(key, "err", "Gagal menyimpan: " + err.message);
       } finally {
         btn.disabled = false;
-        btn.textContent = btn.dataset.label || btn.textContent.replace("Menyimpan…", "");
+        btn.textContent = btn.dataset.label || btn.textContent.replace("Menyimpan...", "");
       }
     });
   }
@@ -861,15 +1040,9 @@
     const uangJalan = document.getElementById("uj-uangjalan").value;
     const invoice = document.getElementById("uj-invoice").value;
     if (!tanggal || !customer || !tujuan || uangJalan === "" || invoice === "") return null;
-    const payload = { tanggal: fmtDateID(tanggal), noDoSpe, tujuan, uangJalan: Number(uangJalan), invoice: Number(invoice), customer };
-    if (uangJalanPhoto) {
-      payload.photoBase64 = uangJalanPhoto.base64;
-      payload.photoName = uangJalanPhoto.name;
-      payload.photoMime = uangJalanPhoto.mime;
-    }
-    return payload;
-  }, (p) => [p.tujuan + " &mdash; " + p.customer + (p.photoBase64 ? " &middot; foto" : ""), "Rp" + idr.format(p.invoice)],
-  () => { document.getElementById("uj-tanggal").value = todayISO(); resetUangJalanPhoto(); });
+    return { tanggal: fmtDateID(tanggal), noDoSpe, tujuan, uangJalan: Number(uangJalan), invoice: Number(invoice), customer };
+  }, (p) => [p.tujuan + " &mdash; " + p.customer, "Rp" + idr.format(p.invoice)],
+  () => { document.getElementById("uj-tanggal").value = todayISO(); resetScan(); ujLookupHint.hidden = true; });
 
   // ---- TAGIHAN & CICILAN ----
   wireForm("tagihan", "TAGIHAN_CICILAN", () => {
