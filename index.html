@@ -1,0 +1,883 @@
+<title>Catatan B 9991 TXR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --bg: #f6f4ef;
+    --surface: #ffffff;
+    --surface-sunken: #efece4;
+    --ink: #211f1a;
+    --ink-muted: #6d685d;
+    --ink-faint: #a39d8e;
+    --line: #e2ddd0;
+    --accent: #b8551f;
+    --accent-ink: #ffffff;
+    --accent-soft: #f2e2d3;
+    --success: #2f7d55;
+    --success-soft: #e3efe6;
+    --danger: #b23a2e;
+    --danger-soft: #f6e4e1;
+    --radius: 10px;
+    --font-display: "Fraunces", Georgia, "Times New Roman", serif;
+    --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", "SF Mono", Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #161512;
+      --surface: #1e1c18;
+      --surface-sunken: #26241f;
+      --ink: #ede9e0;
+      --ink-muted: #a39d8e;
+      --ink-faint: #6d685d;
+      --line: #34312a;
+      --accent: #e07a3f;
+      --accent-ink: #1a1108;
+      --accent-soft: #3a2818;
+      --success: #5fb98a;
+      --success-soft: #1e3128;
+      --danger: #e0776a;
+      --danger-soft: #3a2320;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #161512;
+    --surface: #1e1c18;
+    --surface-sunken: #26241f;
+    --ink: #ede9e0;
+    --ink-muted: #a39d8e;
+    --ink-faint: #6d685d;
+    --line: #34312a;
+    --accent: #e07a3f;
+    --accent-ink: #1a1108;
+    --accent-soft: #3a2818;
+    --success: #5fb98a;
+    --success-soft: #1e3128;
+    --danger: #e0776a;
+    --danger-soft: #3a2320;
+  }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+
+  .page {
+    max-width: 620px;
+    margin: 0 auto;
+    padding: 28px 20px 80px;
+  }
+
+  /* ---------- Masthead ---------- */
+
+  .masthead {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    padding-bottom: 20px;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 24px;
+  }
+
+  .masthead-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 6px;
+    font-weight: 500;
+  }
+
+  .masthead h1 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(30px, 8vw, 40px);
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+    line-height: 1;
+  }
+
+  .masthead-sub {
+    font-size: 13px;
+    color: var(--ink-muted);
+    margin: 6px 0 0;
+  }
+
+  .masthead-plate {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-faint);
+    text-align: right;
+    line-height: 1.5;
+    white-space: nowrap;
+  }
+
+  /* ---------- Tabs ---------- */
+
+  .tabs {
+    display: flex;
+    gap: 2px;
+    background: var(--surface-sunken);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 3px;
+    margin-bottom: 20px;
+  }
+
+  .tab {
+    flex: 1;
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--ink-muted);
+    font-family: var(--font-body);
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    padding: 10px 6px;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+
+  .tab.active {
+    background: var(--surface);
+    color: var(--ink);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+  }
+
+  .tab:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* ---------- Card / form ---------- */
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 24px;
+  }
+
+  .card-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 18px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .card-title {
+    font-family: var(--font-display);
+    font-size: 19px;
+    font-weight: 600;
+    margin: 0;
+  }
+
+  .card-count {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-faint);
+  }
+
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 16px;
+  }
+
+  .field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-muted);
+    letter-spacing: 0.01em;
+  }
+
+  label .opt {
+    font-weight: 400;
+    color: var(--ink-faint);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  input, select, textarea {
+    font-family: var(--font-body);
+    font-size: 15px;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 10px 12px;
+    width: 100%;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  input[type="number"], input[type="date"] {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  input::placeholder, textarea::placeholder { color: var(--ink-faint); }
+
+  input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+
+  .amount-wrap {
+    position: relative;
+  }
+
+  .amount-wrap .prefix {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--ink-faint);
+    pointer-events: none;
+  }
+
+  .amount-wrap input {
+    padding-left: 32px;
+  }
+
+  select {
+    appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--ink-muted) 50%), linear-gradient(135deg, var(--ink-muted) 50%, transparent 50%);
+    background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    padding-right: 32px;
+  }
+
+  .photo-picker {
+    display: flex;
+  }
+
+  .photo-btn {
+    appearance: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface-sunken);
+    border: 1px dashed var(--ink-faint);
+    color: var(--ink-muted);
+    font-family: var(--font-body);
+    font-size: 13.5px;
+    font-weight: 600;
+    padding: 10px 14px;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  }
+
+  .photo-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .photo-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .photo-preview {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--surface-sunken);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px;
+  }
+
+  .photo-preview img {
+    width: 46px;
+    height: 46px;
+    object-fit: cover;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    flex-shrink: 0;
+  }
+
+  .photo-preview-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .photo-preview-meta span:first-child {
+    font-size: 13px;
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .photo-preview-size {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-faint);
+  }
+
+  .photo-remove {
+    appearance: none;
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--ink-muted);
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 7px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .photo-remove:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .submit {
+    appearance: none;
+    border: none;
+    width: 100%;
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-family: var(--font-body);
+    font-size: 14.5px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    padding: 13px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-top: 4px;
+    transition: filter 0.15s ease, transform 0.05s ease;
+  }
+
+  .submit:hover { filter: brightness(1.08); }
+  .submit:active { transform: translateY(1px); }
+  .submit:disabled { opacity: 0.55; cursor: progress; filter: none; }
+
+  .submit:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* ---------- Status ---------- */
+
+  .status {
+    display: none;
+    align-items: flex-start;
+    gap: 10px;
+    margin-top: 14px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .status.show { display: flex; }
+
+  .status.ok {
+    background: var(--success-soft);
+    color: var(--success);
+  }
+
+  .status.err {
+    background: var(--danger-soft);
+    color: var(--danger);
+  }
+
+  .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    margin-top: 6px;
+    flex-shrink: 0;
+  }
+
+  .status b { color: inherit; }
+
+  /* ---------- Log ---------- */
+
+  .log {
+    margin-top: 22px;
+  }
+
+  .log-label {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin: 0 0 10px;
+  }
+
+  .log-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .log-item {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 2px;
+    border-bottom: 1px solid var(--line);
+    font-size: 13px;
+    animation: fadeIn 0.25s ease;
+  }
+
+  .log-item-main {
+    color: var(--ink);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .log-item-meta {
+    font-family: var(--font-mono);
+    color: var(--ink-faint);
+    font-size: 11.5px;
+    flex-shrink: 0;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-3px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+  }
+
+  footer {
+    text-align: center;
+    margin-top: 32px;
+    font-size: 11px;
+    color: var(--ink-faint);
+    font-family: var(--font-mono);
+  }
+</style>
+
+<div class="page">
+
+  <div class="masthead">
+    <div>
+      <p class="masthead-eyebrow">Buku Catatan Keuangan</p>
+      <h1>B 9991 TXR</h1>
+      <p class="masthead-sub">Hino Dutro 2013 &middot; input langsung ke spreadsheet</p>
+    </div>
+    <div class="masthead-plate">HINO&nbsp;DUTRO<br>2013</div>
+  </div>
+
+  <div class="tabs" role="tablist">
+    <button class="tab active" data-panel="perbaikan" role="tab" aria-selected="true">Perbaikan</button>
+    <button class="tab" data-panel="uangjalan" role="tab" aria-selected="false">Uang Jalan</button>
+    <button class="tab" data-panel="tagihan" role="tab" aria-selected="false">Tagihan &amp; Cicilan</button>
+  </div>
+
+  <!-- PERBAIKAN -->
+  <div class="card panel active" id="panel-perbaikan">
+    <div class="card-head">
+      <h2 class="card-title">Perbaikan</h2>
+      <span class="card-count" id="count-perbaikan">0 dicatat sesi ini</span>
+    </div>
+    <form id="form-perbaikan" novalidate>
+      <div class="field">
+        <label for="pb-tanggal">Tanggal</label>
+        <input type="date" id="pb-tanggal" required>
+      </div>
+      <div class="field">
+        <label for="pb-tindakan">Tindakan</label>
+        <input type="text" id="pb-tindakan" placeholder="Mis. Ganti kampas rem" required>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="pb-harga">Harga</label>
+          <div class="amount-wrap">
+            <span class="prefix">Rp</span>
+            <input type="number" id="pb-harga" placeholder="0" min="0" step="1" inputmode="numeric" required>
+          </div>
+        </div>
+        <div class="field">
+          <label for="pb-bayar">Bayar ke BRU</label>
+          <select id="pb-bayar" required>
+            <option value="SUDAH">SUDAH</option>
+            <option value="PRIBADI">PRIBADI</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="pb-keterangan">Keterangan <span class="opt">(opsional)</span></label>
+        <input type="text" id="pb-keterangan" placeholder="Catatan tambahan">
+      </div>
+      <button type="submit" class="submit">Simpan ke sheet Perbaikan</button>
+      <div class="status" id="status-perbaikan"><span class="status-dot"></span><span class="status-text"></span></div>
+    </form>
+    <div class="log" id="log-wrap-perbaikan" hidden>
+      <p class="log-label">Baru disimpan</p>
+      <div class="log-list" id="log-perbaikan"></div>
+    </div>
+  </div>
+
+  <!-- UANG JALAN -->
+  <div class="card panel" id="panel-uangjalan">
+    <div class="card-head">
+      <h2 class="card-title">Uang Jalan</h2>
+      <span class="card-count" id="count-uangjalan">0 dicatat sesi ini</span>
+    </div>
+    <form id="form-uangjalan" novalidate>
+      <div class="field">
+        <label for="uj-tanggal">Tanggal</label>
+        <input type="date" id="uj-tanggal" required>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="uj-nodo">No DO / SPE <span class="opt">(opsional)</span></label>
+          <input type="text" id="uj-nodo" placeholder="mis. 73010658">
+        </div>
+        <div class="field">
+          <label for="uj-customer">Customer</label>
+          <input type="text" id="uj-customer" placeholder="mis. Indofood" required>
+        </div>
+      </div>
+      <div class="field">
+        <label for="uj-tujuan">Tujuan</label>
+        <input type="text" id="uj-tujuan" placeholder="mis. indofood Cibinong" required>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="uj-uangjalan">Uang Jalan</label>
+          <div class="amount-wrap">
+            <span class="prefix">Rp</span>
+            <input type="number" id="uj-uangjalan" placeholder="0" min="0" step="1" inputmode="numeric" required>
+          </div>
+        </div>
+        <div class="field">
+          <label for="uj-invoice">Invoice</label>
+          <div class="amount-wrap">
+            <span class="prefix">Rp</span>
+            <input type="number" id="uj-invoice" placeholder="0" min="0" step="1" inputmode="numeric" required>
+          </div>
+        </div>
+      </div>
+      <div class="field">
+        <label>Foto Struk / DO <span class="opt">(opsional)</span></label>
+        <input type="file" id="uj-foto" accept="image/*" hidden>
+        <div class="photo-picker" id="uj-photo-empty">
+          <button type="button" class="photo-btn" id="uj-foto-btn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h3l2-2h6l2 2h3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/></svg>
+            Pilih dari Galeri
+          </button>
+        </div>
+        <div class="photo-preview" id="uj-photo-preview" hidden>
+          <img id="uj-foto-img" alt="Preview foto">
+          <div class="photo-preview-meta">
+            <span id="uj-foto-name">foto.jpg</span>
+            <span id="uj-foto-size" class="photo-preview-size"></span>
+          </div>
+          <button type="button" class="photo-remove" id="uj-foto-remove" aria-label="Hapus foto">Ganti</button>
+        </div>
+      </div>
+      <button type="submit" class="submit">Simpan ke sheet Uang Jalan</button>
+      <div class="status" id="status-uangjalan"><span class="status-dot"></span><span class="status-text"></span></div>
+    </form>
+    <div class="log" id="log-wrap-uangjalan" hidden>
+      <p class="log-label">Baru disimpan</p>
+      <div class="log-list" id="log-uangjalan"></div>
+    </div>
+  </div>
+
+  <!-- TAGIHAN & CICILAN -->
+  <div class="card panel" id="panel-tagihan">
+    <div class="card-head">
+      <h2 class="card-title">Tagihan &amp; Cicilan</h2>
+      <span class="card-count" id="count-tagihan">0 dicatat sesi ini</span>
+    </div>
+    <form id="form-tagihan" novalidate>
+      <div class="field">
+        <label for="tc-bulan">Bulan</label>
+        <input type="text" id="tc-bulan" placeholder="mis. AGUSTUS 2026" required>
+      </div>
+      <div class="field">
+        <label for="tc-tagihan">Tagihan</label>
+        <div class="amount-wrap">
+          <span class="prefix">Rp</span>
+          <input type="number" id="tc-tagihan" placeholder="0" min="0" step="1" inputmode="numeric" required>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="tc-cicilan">Cicilan</label>
+          <div class="amount-wrap">
+            <span class="prefix">Rp</span>
+            <input type="number" id="tc-cicilan" placeholder="0" min="0" step="1" inputmode="numeric" required>
+          </div>
+        </div>
+        <div class="field">
+          <label for="tc-operasional">Operasional</label>
+          <div class="amount-wrap">
+            <span class="prefix">Rp</span>
+            <input type="number" id="tc-operasional" placeholder="0" min="0" step="1" inputmode="numeric" required>
+          </div>
+        </div>
+      </div>
+      <button type="submit" class="submit">Simpan ke sheet Tagihan &amp; Cicilan</button>
+      <div class="status" id="status-tagihan"><span class="status-dot"></span><span class="status-text"></span></div>
+    </form>
+    <div class="log" id="log-wrap-tagihan" hidden>
+      <p class="log-label">Baru disimpan</p>
+      <div class="log-list" id="log-tagihan"></div>
+    </div>
+  </div>
+
+  <footer>terhubung ke Google Sheet &middot; History B 9991 TXR</footer>
+
+</div>
+
+<script>
+  const ENDPOINT = "https://script.google.com/macros/s/AKfycbwVwW6IJA_A3m59pBA4_v71KWKgJ-G2JOsqpWUr1HWp-vB9r-4uhXf517IZjvQJeSWG/exec";
+
+  const idr = new Intl.NumberFormat("id-ID");
+  const counts = { perbaikan: 0, uangjalan: 0, tagihan: 0 };
+
+  // ---- tabs ----
+  const tabs = document.querySelectorAll(".tab");
+  tabs.forEach(tab => {
+    tab.addEventListener("click", () => {
+      tabs.forEach(t => { t.classList.remove("active"); t.setAttribute("aria-selected", "false"); });
+      document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+      tab.classList.add("active");
+      tab.setAttribute("aria-selected", "true");
+      document.getElementById("panel-" + tab.dataset.panel).classList.add("active");
+    });
+  });
+
+  function todayISO() {
+    const d = new Date();
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
+  document.getElementById("pb-tanggal").value = todayISO();
+  document.getElementById("uj-tanggal").value = todayISO();
+
+  function fmtDateID(iso) {
+    if (!iso) return "";
+    const [y, m, d] = iso.split("-");
+    const bulan = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
+    return `${parseInt(d,10)} ${bulan[parseInt(m,10)-1]} ${y}`;
+  }
+
+  function setStatus(key, kind, message) {
+    const el = document.getElementById("status-" + key);
+    el.className = "status show " + kind;
+    el.querySelector(".status-text").innerHTML = message;
+  }
+
+  function clearStatus(key) {
+    const el = document.getElementById("status-" + key);
+    el.className = "status";
+  }
+
+  function addLogRow(key, main, meta) {
+    const wrap = document.getElementById("log-wrap-" + key);
+    const list = document.getElementById("log-" + key);
+    wrap.hidden = false;
+    const row = document.createElement("div");
+    row.className = "log-item";
+    row.innerHTML = `<span class="log-item-main">${main}</span><span class="log-item-meta">${meta}</span>`;
+    list.prepend(row);
+    counts[key] += 1;
+    document.getElementById("count-" + key).textContent = counts[key] + " dicatat sesi ini";
+  }
+
+  // ---- foto upload (Uang Jalan) ----
+  const ujFotoInput = document.getElementById("uj-foto");
+  const ujFotoBtn = document.getElementById("uj-foto-btn");
+  const ujPhotoEmpty = document.getElementById("uj-photo-empty");
+  const ujPhotoPreview = document.getElementById("uj-photo-preview");
+  const ujFotoImg = document.getElementById("uj-foto-img");
+  const ujFotoName = document.getElementById("uj-foto-name");
+  const ujFotoSize = document.getElementById("uj-foto-size");
+  const ujFotoRemove = document.getElementById("uj-foto-remove");
+  let uangJalanPhoto = null;
+
+  function compressImage(file, maxDim, quality) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          let w = img.width, h = img.height;
+          if (w > maxDim || h > maxDim) {
+            if (w > h) { h = Math.round(h * maxDim / w); w = maxDim; }
+            else { w = Math.round(w * maxDim / h); h = maxDim; }
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL("image/jpeg", quality));
+        };
+        img.onerror = () => reject(new Error("File bukan gambar yang valid"));
+        img.src = e.target.result;
+      };
+      reader.onerror = () => reject(new Error("Gagal membaca file"));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function resetUangJalanPhoto() {
+    uangJalanPhoto = null;
+    ujFotoInput.value = "";
+    ujPhotoPreview.hidden = true;
+    ujPhotoEmpty.hidden = false;
+  }
+
+  ujFotoBtn.addEventListener("click", () => ujFotoInput.click());
+  ujFotoRemove.addEventListener("click", resetUangJalanPhoto);
+
+  ujFotoInput.addEventListener("change", async () => {
+    const file = ujFotoInput.files[0];
+    if (!file) return;
+    ujFotoBtn.disabled = true;
+    try {
+      const dataUrl = await compressImage(file, 1600, 0.72);
+      const base64 = dataUrl.split(",")[1];
+      const sizeKB = Math.round((base64.length * 3 / 4) / 1024);
+      const name = (file.name || "foto").replace(/\.[^.]+$/, "") + ".jpg";
+      uangJalanPhoto = { base64, mime: "image/jpeg", name };
+      ujFotoImg.src = dataUrl;
+      ujFotoName.textContent = name;
+      ujFotoSize.textContent = sizeKB + " KB";
+      ujPhotoEmpty.hidden = true;
+      ujPhotoPreview.hidden = false;
+    } catch (err) {
+      setStatus("uangjalan", "err", "Gagal memproses foto: " + err.message);
+    } finally {
+      ujFotoBtn.disabled = false;
+    }
+  });
+
+  async function sendToSheet(payload) {
+    const res = await fetch(ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data.status !== "ok") throw new Error(data.message || "Gagal menyimpan");
+    return data;
+  }
+
+  function wireForm(key, sheetName, buildPayload, buildLog, resetExtra) {
+    const form = document.getElementById("form-" + key);
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      clearStatus(key);
+      const btn = form.querySelector(".submit");
+      const payload = buildPayload();
+      if (payload === null) {
+        setStatus(key, "err", "Lengkapi kolom yang wajib diisi.");
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = "Menyimpan…";
+      try {
+        const result = await sendToSheet({ sheet: sheetName, ...payload });
+        setStatus(key, "ok", `Tersimpan &middot; baris <b>${result.row}</b> di sheet ${sheetName.replace("_"," ")}`);
+        const [main, meta] = buildLog(payload);
+        addLogRow(key, main, meta);
+        form.reset();
+        if (resetExtra) resetExtra();
+      } catch (err) {
+        setStatus(key, "err", "Gagal menyimpan: " + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = btn.dataset.label || btn.textContent.replace("Menyimpan…", "");
+      }
+    });
+  }
+
+  // restore original button labels after async work
+  document.querySelectorAll(".submit").forEach(b => b.dataset.label = b.textContent);
+
+  // ---- PERBAIKAN ----
+  wireForm("perbaikan", "PERBAIKAN", () => {
+    const tanggal = document.getElementById("pb-tanggal").value;
+    const tindakan = document.getElementById("pb-tindakan").value.trim();
+    const harga = document.getElementById("pb-harga").value;
+    const bayarKeBru = document.getElementById("pb-bayar").value;
+    const keterangan = document.getElementById("pb-keterangan").value.trim();
+    if (!tanggal || !tindakan || harga === "") return null;
+    return { tanggal: fmtDateID(tanggal), tindakan, harga: Number(harga), bayarKeBru, keterangan };
+  }, (p) => [p.tindakan, "Rp" + idr.format(p.harga)],
+  () => { document.getElementById("pb-tanggal").value = todayISO(); });
+
+  // ---- UANG JALAN ----
+  wireForm("uangjalan", "UANG_JALAN", () => {
+    const tanggal = document.getElementById("uj-tanggal").value;
+    const noDoSpe = document.getElementById("uj-nodo").value.trim();
+    const customer = document.getElementById("uj-customer").value.trim();
+    const tujuan = document.getElementById("uj-tujuan").value.trim();
+    const uangJalan = document.getElementById("uj-uangjalan").value;
+    const invoice = document.getElementById("uj-invoice").value;
+    if (!tanggal || !customer || !tujuan || uangJalan === "" || invoice === "") return null;
+    const payload = { tanggal: fmtDateID(tanggal), noDoSpe, tujuan, uangJalan: Number(uangJalan), invoice: Number(invoice), customer };
+    if (uangJalanPhoto) {
+      payload.photoBase64 = uangJalanPhoto.base64;
+      payload.photoName = uangJalanPhoto.name;
+      payload.photoMime = uangJalanPhoto.mime;
+    }
+    return payload;
+  }, (p) => [p.tujuan + " &mdash; " + p.customer + (p.photoBase64 ? " &middot; foto" : ""), "Rp" + idr.format(p.invoice)],
+  () => { document.getElementById("uj-tanggal").value = todayISO(); resetUangJalanPhoto(); });
+
+  // ---- TAGIHAN & CICILAN ----
+  wireForm("tagihan", "TAGIHAN_CICILAN", () => {
+    const bulan = document.getElementById("tc-bulan").value.trim();
+    const tagihan = document.getElementById("tc-tagihan").value;
+    const cicilan = document.getElementById("tc-cicilan").value;
+    const operasional = document.getElementById("tc-operasional").value;
+    if (!bulan || tagihan === "" || cicilan === "" || operasional === "") return null;
+    return { bulan, tagihan: Number(tagihan), cicilan: Number(cicilan), operasional: Number(operasional) };
+  }, (p) => [p.bulan, "Rp" + idr.format(p.tagihan)]);
+</script>
