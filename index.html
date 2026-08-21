@@ -901,8 +901,16 @@
         var gudangAsal = words.slice(0, 2).join(" ");
         var tujuanKota = words[2];
         result.tujuan = `${gudangAsal} - ${tujuanKota}`;
-        var customer = words.slice(3).join(" ");
-        customer = customer.replace(/,\s*[A-Za-z]{1,3}\.?$/, "").replace(/,\s*$/, "").trim();
+        var customerWords = words.slice(3);
+        while (customerWords.length > 1) {
+          var last = customerWords[customerWords.length - 1].replace(/[,.]+$/, "");
+          if (/^[^A-Za-z0-9]+$/.test(last) || (last.length <= 2 && !/^(PT|CV|UD)$/i.test(last))) {
+            customerWords.pop();
+          } else {
+            break;
+          }
+        }
+        var customer = customerWords.join(" ").replace(/[,.]+$/, "").trim();
         if (customer) result.customer = customer;
       } else if (words.length === 3) {
         result.tujuan = `${words[0]} - ${words[1]}`;
@@ -968,10 +976,30 @@
     return v.trim().toLowerCase().replace(/\s+/g, " ");
   }
 
+  function findByKotaTujuan(key) {
+    // fallback: kalau gudang asal typo (mis. hasil OCR), coba cocokkan
+    // hanya dari kota tujuan (bagian setelah tanda "-"), asal cuma ada
+    // satu rute historis yang berakhir di kota yang sama.
+    const parts = key.split(" - ");
+    if (parts.length < 2) return null;
+    const kota = parts[parts.length - 1].trim();
+    if (!kota) return null;
+
+    const candidates = Object.keys(tujuanLookup).filter((k) => k.endsWith(" - " + kota));
+    if (candidates.length !== 1) return null;
+    return tujuanLookup[candidates[0]];
+  }
+
   function applyTujuanLookup() {
     const tujuanInput = document.getElementById("uj-tujuan");
     const key = normalizeTujuan(tujuanInput.value || "");
-    const match = key ? tujuanLookup[key] : null;
+    let match = key ? tujuanLookup[key] : null;
+    let byKota = false;
+
+    if (!match && key) {
+      match = findByKotaTujuan(key);
+      byKota = !!match;
+    }
 
     if (!match) {
       ujLookupHint.hidden = true;
@@ -984,7 +1012,8 @@
     if (!invoiceEl.value) invoiceEl.value = match.invoice;
 
     ujLookupHint.hidden = false;
-    ujLookupHint.textContent = `Rute pernah dicatat: Uang Jalan & Invoice terisi dari histori (Rp${idr.format(match.uangJalan)} / Rp${idr.format(match.invoice)}), boleh diubah.`;
+    const dasar = byKota ? `berdasarkan kota tujuan yang sama (rute: ${match.tujuan})` : "dari histori";
+    ujLookupHint.textContent = `Rute pernah dicatat: Uang Jalan & Invoice terisi ${dasar} (Rp${idr.format(match.uangJalan)} / Rp${idr.format(match.invoice)}), boleh diubah.`;
   }
 
   document.getElementById("uj-tujuan").addEventListener("blur", applyTujuanLookup);
