@@ -827,7 +827,7 @@
       </div>
       <div class="field">
         <label for="uj-tujuan">Tujuan</label>
-        <input type="text" id="uj-tujuan" placeholder="mis. indofood Cibinong" required>
+        <input type="text" id="uj-tujuan" placeholder="mis. TFJ Pandeglang - SERANG" required>
         <p class="lookup-hint" id="uj-lookup-hint" hidden></p>
       </div>
       <div class="field-row">
@@ -1108,14 +1108,172 @@
     });
   }
 
+  // Gudang asal untuk armada ini selalu sama, jadi tidak perlu (dan tidak boleh)
+  // ikut ditebak dari hasil OCR -- yang dibaca cukup kota tujuannya saja.
+  const GUDANG_ASAL = "TFJ Pandeglang";
+
+  function levenshtein(a, b) {
+    if (a === b) return 0;
+    if (!a.length) return b.length;
+    if (!b.length) return a.length;
+    let prev = [];
+    for (let j = 0; j <= b.length; j++) prev[j] = j;
+    for (let i = 1; i <= a.length; i++) {
+      const cur = [i];
+      for (let j = 1; j <= b.length; j++) {
+        const cost = a.charAt(i - 1) === b.charAt(j - 1) ? 0 : 1;
+        cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+      }
+      prev = cur;
+    }
+    return prev[b.length];
+  }
+
+  // Daftar kota tujuan yang pernah dipakai, diambil dari histori Sheet.
+  // Dipakai untuk membetulkan typo hasil OCR (mis. "SERAWG" -> "SERANG").
+  function knownKotaList() {
+    const seen = {};
+    Object.keys(tujuanLookup || {}).forEach((key) => {
+      const entry = tujuanLookup[key];
+      const label = String((entry && entry.tujuan) || key);
+      const parts = label.split("-");
+      if (parts.length < 2) return;
+      const kota = parts[parts.length - 1].trim().toUpperCase();
+      if (kota) seen[kota] = true;
+    });
+    return Object.keys(seen);
+  }
+
+  // Nama kota selalu ditulis "besar kecil" (Cilegon, Serang, Jakarta Barat)
+  // supaya isi kolom TUJUAN di Sheet seragam, tidak campur huruf besar semua.
+  function titleCase(str) {
+    return String(str || "")
+      .toLowerCase()
+      .replace(/(^|[\s\-\/])([a-z])/g, function (m, pemisah, huruf) {
+        return pemisah + huruf.toUpperCase();
+      });
+  }
+
+  function bestKotaMatch(raw) {
+    const cand = String(raw || "").toUpperCase().replace(/[^A-Z0-9 ]/g, "").trim();
+    if (!cand) return null;
+    const list = knownKotaList();
+    let best = null;
+    let bestDist = Infinity;
+    list.forEach((kota) => {
+      const d = levenshtein(cand, kota);
+      if (d < bestDist) { bestDist = d; best = kota; }
+    });
+    if (!best) return null;
+    // toleransi sekitar sepertiga panjang kata, minimal 1 huruf
+    const tol = Math.max(1, Math.floor(Math.max(cand.length, best.length) / 3));
+    if (bestDist > tol) return null;
+    return { kota: titleCase(best), dist: bestDist };
+  }
+
+  // Cocokkan nama customer hasil OCR ke daftar customer yang sudah pernah
+  // dicatat di Sheet. Sengaja konservatif: kalau tidak ada yang cukup mirip,
+  // atau ada dua nama yang sama-sama mirip (ambigu), hasil OCR dipakai apa
+  // adanya supaya customer baru tidak "dipaksa" jadi customer lama.
+  function bestCustomerMatch(raw) {
+    const cand = String(raw || "").toUpperCase().replace(/[^A-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+    if (cand.length < 4 || !customerList.length) return null;
+
+    let best = null, bestDist = Infinity;
+    let secondDist = Infinity;
+
+    customerList.forEach((nama) => {
+      const norm = nama.toUpperCase().replace(/[^A-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+      if (!norm) return;
+      let d;
+      if (norm === cand) {
+        d = 0;
+      } else if (norm.indexOf(cand) === 0) {
+        // OCR sering memotong ekor nama ("... MAKMUR, P" dari "... MAKMUR, PT")
+        d = Math.min(2, (norm.length - cand.length) / 4);
+      } else {
+        d = levenshtein(cand, norm);
+      }
+      if (d < bestDist) {
+        secondDist = bestDist;
+        bestDist = d;
+        best = nama;
+      } else if (d < secondDist) {
+        secondDist = d;
+      }
+    });
+
+    if (!best) return null;
+    // toleransi seperempat panjang nama -- nama panjang boleh salah lebih banyak huruf
+    const tol = Math.max(2, Math.floor(cand.length / 4));
+    if (bestDist > tol) return null;
+    // ambigu: ada kandidat lain yang sama miripnya
+    if (secondDist - bestDist < 1 && secondDist <= tol) return null;
+    return { customer: best, dist: bestDist };
+  }
+
+  function looksLikeGudangAsal(word) {
+    const u = String(word || "").toUpperCase().replace(/[^A-Z]/g, "");
+    if (!u) return true;
+    return levenshtein(u, "TFJ") <= 1 || levenshtein(u, "PANDEGLANG") <= 4;
+  }
+
+  // Versi ketat, dipakai sebagai jangkar pencarian baris data. Tidak boleh
+  // mengembalikan true untuk token sampah/angka (mis. "11") seperti
+  // looksLikeGudangAsal, karena posisinya menentukan di mana kota tujuan mulai.
+  function isPandeglaToken(word) {
+    const u = String(word || "").toUpperCase().replace(/[^A-Z]/g, "");
+    return u.length >= 6 && levenshtein(u, "PANDEGLANG") <= 4;
+  }
+
+  function cleanCustomer(str) {
+    const words = String(str || "").trim().split(/\s+/).filter(Boolean);
+    while (words.length > 1) {
+      const last = words[words.length - 1].replace(/[,.]+$/, "");
+      if (/^[^A-Za-z0-9]+$/.test(last) || (last.length <= 2 && !/^(PT|CV|UD)$/i.test(last))) {
+        words.pop();
+      } else {
+        break;
+      }
+    }
+    return words.join(" ").replace(/[,.]+$/, "").trim();
+  }
+
+  function isTanggalMasukAkal(d, m) {
+    const hari = Number(d);
+    const bulan = Number(m);
+    return hari >= 1 && hari <= 31 && bulan >= 1 && bulan <= 12;
+  }
+
+  function toIsoDate(d, m, y) {
+    let year = String(y);
+    if (year.length === 2) year = "20" + year;
+    return `${year}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+
   function parseSpr(text) {
     const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
     const result = {};
 
-    const dateMatch = text.match(/(\d{1,2})[.\-\/](\d{1,2})[.\-\/](\d{4})/);
-    if (dateMatch) {
-      const [, d, m, y] = dateMatch;
-      result.tanggal = `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+    // Tanggal diambil dari field "Tgl Muat" kalau ada; kalau tidak terbaca,
+    // baru jatuh ke tanggal pertama yang muncul di dokumen. Pemisahnya dibuat
+    // longgar (titik/koma/strip/spasi) karena OCR sering salah baca titik pada
+    // cetakan dot-matrix; tahunnya wajib 20xx supaya nomor panjang seperti
+    // "No.PO : 2000008702" tidak ikut tertangkap sebagai tanggal.
+    const muatMatch = text.match(
+      /(?:tgl|tanggal)?\.?\s*muat[^0-9]{0,15}(\d{1,2})\s*[.,\-\/]\s*(\d{1,2})\s*[.,\-\/]\s*(\d{2,4})/i
+    );
+    if (muatMatch && isTanggalMasukAkal(muatMatch[1], muatMatch[2])) {
+      result.tanggal = toIsoDate(muatMatch[1], muatMatch[2], muatMatch[3]);
+    } else {
+      const semua = text.match(/\b\d{1,2}\s*[.,\-\/]\s*\d{1,2}\s*[.,\-\/]\s*20\d{2}\b/g) || [];
+      for (const kandidat of semua) {
+        const bagian = kandidat.split(/\s*[.,\-\/]\s*/);
+        if (isTanggalMasukAkal(bagian[0], bagian[1])) {
+          result.tanggal = toIsoDate(bagian[0], bagian[1], bagian[2]);
+          break;
+        }
+      }
     }
 
     // No SPR/SPE (pojok kanan atas) jadi sumber utama No DO/SPE
@@ -1130,52 +1288,112 @@
 
     // Baris data utama: Tgl D/O, No D/O, (kode lain), Gudang Asal, Tujuan, Langganan
     // semuanya ada dalam SATU baris yang sama, dipisah spasi. Contoh nyata:
-    // "9-08-2026 76781579 1708 TFJ Pandeglang SERANG SEKAR ARUM MAKMUR, P"
-    const dataLineMatch = text.match(/\d{1,2}[.\-\/]\d{1,2}[.\-\/]\d{4}\s+(\d{5,})\s+(.+)/);
-    if (dataLineMatch) {
-      if (!result.noDoSpe) result.noDoSpe = dataLineMatch[1];
+    // "22.08.2026 76788711 1708 TFJ Pandegla Cilegon ALVA JAYA LESTARI, P"
+    //
+    // PENTING: baris ini TIDAK dicari lewat tanggal/nomor D/O. Pada cetakan
+    // dot-matrix dua kolom pertama itu sering hancur total dibaca OCR
+    // (nyatanya terbaca "Q t 11 1"), sedangkan token gudang asal "Pandegla"
+    // konsisten terbaca. Jadi "Pandegla" yang dipakai sebagai jangkar, dan
+    // semua yang ada SETELAHNYA adalah kota tujuan + nama customer.
+    let dataLineIdx = -1;
+    let words = null;
 
-      var rest = dataLineMatch[2];
-      // buang kode angka tambahan di depan (mis. jam bongkar "1708")
-      rest = rest.replace(/^(\s*\d{1,6}\s+)+/, "");
-      var words = rest.trim().split(/\s+/).filter(Boolean);
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      // lewati watermark lokasi foto ("Kabupaten Pandeglang, Banten 42251")
+      if (/kabupaten|banten|\bkec\b|\bkel\b/i.test(l)) continue;
+      // lewati baris header kolom ("Gudang Asal  Tujuan  Langganan")
+      if (/tujuan/i.test(l) && /(gudang|sudang|asal)/i.test(l)) continue;
 
-      if (words.length >= 4) {
-        var gudangAsal = words.slice(0, 2).join(" ");
-        var tujuanKota = words[2];
-        result.tujuan = `${gudangAsal} - ${tujuanKota}`;
-        var customerWords = words.slice(3);
-        while (customerWords.length > 1) {
-          var last = customerWords[customerWords.length - 1].replace(/[,.]+$/, "");
-          if (/^[^A-Za-z0-9]+$/.test(last) || (last.length <= 2 && !/^(PT|CV|UD)$/i.test(last))) {
-            customerWords.pop();
-          } else {
-            break;
-          }
-        }
-        var customer = customerWords.join(" ").replace(/[,.]+$/, "").trim();
-        if (customer) result.customer = customer;
-      } else if (words.length === 3) {
-        result.tujuan = `${words[0]} - ${words[1]}`;
-        result.customer = words[2].replace(/,\s*$/, "");
-      } else if (words.length === 2) {
-        result.tujuan = `${words[0]} - ${words[1]}`;
-      } else if (words.length === 1) {
-        result.tujuan = words[0];
+      const kandidatKata = l.split(/\s+/).filter((w) => /[A-Za-z0-9]/.test(w));
+      const gi = kandidatKata.findIndex(isPandeglaToken);
+      if (gi !== -1) {
+        words = kandidatKata.slice(gi + 1);
+        dataLineIdx = i;
+        break;
       }
     }
 
-    // fallback untuk format dokumen lain: label dan isi di baris/segmen yang sama
-    if (!result.tujuan) {
-      for (const line of lines) {
-        const m = line.match(/Tujuan[:\.\s]+(.{3,})/i);
-        if (m) { result.tujuan = m[1].trim(); break; }
+    // Cadangan: kalau gudang asal sama sekali tidak terbaca, pakai pola lama
+    // (tanggal + nomor D/O + sisanya).
+    if (!words) {
+      const dataLineMatch = text.match(/\d{1,2}[.\-\/]\d{1,2}[.\-\/]\d{2,4}\s+(\d{5,})\s+(.+)/);
+      if (dataLineMatch) {
+        if (!result.noDoSpe) result.noDoSpe = dataLineMatch[1];
+        dataLineIdx = lines.findIndex((l) =>
+          /\d{1,2}[.\-\/]\d{1,2}[.\-\/]\d{2,4}\s+\d{5,}\s+/.test(l)
+        );
+        // buang kode angka tambahan di depan (mis. jam bongkar "1708")
+        const rest = dataLineMatch[2].replace(/^(\s*\d{1,6}\s+)+/, "");
+        words = rest.trim().split(/\s+/).filter((w) => /[A-Za-z0-9]/.test(w));
+        let dibuang = 0;
+        while (words.length > 1 && dibuang < 3 && looksLikeGudangAsal(words[0])) {
+          words.shift();
+          dibuang++;
+        }
       }
+    }
+
+    if (words && words.length) {
+      // Kota tujuan: coba cocokkan 1 atau 2 kata pertama ke daftar kota historis,
+      // supaya typo hasil OCR otomatis dibetulkan.
+      let kota = null;
+      let kotaLen = 0;
+      const kandidat = [];
+      if (words.length >= 1) kandidat.push({ raw: words[0], len: 1 });
+      if (words.length >= 2) kandidat.push({ raw: words[0] + " " + words[1], len: 2 });
+
+      let terbaik = null;
+      kandidat.forEach(function (k) {
+        const m = bestKotaMatch(k.raw);
+        if (m && (!terbaik || m.dist < terbaik.dist)) {
+          terbaik = { kota: m.kota, dist: m.dist, len: k.len };
+        }
+      });
+
+      if (terbaik) {
+        kota = terbaik.kota;
+        kotaLen = terbaik.len;
+      } else {
+        // tidak ada rute historis yang cocok: pakai apa adanya
+        kota = titleCase(words[0].replace(/[^A-Za-z0-9]/g, ""));
+        kotaLen = kota ? 1 : 0;
+      }
+
+      if (kota) result.tujuan = `${GUDANG_ASAL} - ${kota}`;
+
+      const customer = cleanCustomer(words.slice(kotaLen).join(" "));
+      if (customer.length >= 3) result.customer = customer;
     }
     if (!result.customer) {
       for (const line of lines) {
+        // jangan tertipu baris header kolom ("Gudang Asal Tujuan Langganan")
+        if (/tujuan/i.test(line) && /(gudang|sudang|asal)/i.test(line)) continue;
         const m = line.match(/Langganan[:\.\s]+(.{3,})/i);
-        if (m) { result.customer = m[1].trim(); break; }
+        if (m) {
+          const nama = cleanCustomer(m[1]);
+          if (nama.length >= 3) { result.customer = nama; break; }
+        }
+      }
+    }
+    if (!result.customer && dataLineIdx !== -1) {
+      // kadang nama customer terpotong ke baris berikutnya oleh OCR
+      for (let i = dataLineIdx + 1; i < Math.min(lines.length, dataLineIdx + 3); i++) {
+        const kandidatBaris = cleanCustomer(lines[i].replace(/[^A-Za-z0-9,.\s]/g, " "));
+        const hurufBesar = kandidatBaris.replace(/[^A-Z]/g, "").length;
+        if (kandidatBaris.length >= 6 && hurufBesar >= kandidatBaris.length * 0.6) {
+          result.customer = kandidatBaris;
+          break;
+        }
+      }
+    }
+
+    // Terakhir: samakan nama customer dengan ejaan yang sudah dipakai di Sheet.
+    if (result.customer) {
+      const cocokCustomer = bestCustomerMatch(result.customer);
+      if (cocokCustomer && cocokCustomer.customer !== result.customer) {
+        result.customerAsli = result.customer;
+        result.customer = cocokCustomer.customer;
       }
     }
 
@@ -1201,6 +1419,9 @@
     let html = "";
     if (found.length) html += `Terisi otomatis: <b>${found.join(", ")}</b>`;
     if (missing.length) html += `${found.length ? "<br>" : ""}<span class="miss">Tidak terbaca, isi manual: ${missing.join(", ")}</span>`;
+    if (result.customerAsli) {
+      html += `${html ? "<br>" : ""}Customer disamakan dengan histori: "${result.customerAsli}" &rarr; <b>${result.customer}</b>`;
+    }
     ujScanStatus.innerHTML = html || "Tidak ada teks yang terbaca &mdash; isi manual.";
 
     applyTujuanLookup();
@@ -1209,10 +1430,14 @@
   // ---- lookup histori rute (Uang Jalan & Invoice otomatis) ----
   const ujLookupHint = document.getElementById("uj-lookup-hint");
   let tujuanLookup = {};
+  let customerList = [];
 
   fetch(ENDPOINT + "?action=lookup")
     .then((r) => r.json())
-    .then((data) => { tujuanLookup = data.tujuan || {}; })
+    .then((data) => {
+      tujuanLookup = data.tujuan || {};
+      customerList = Array.isArray(data.customers) ? data.customers : [];
+    })
     .catch(() => {});
 
   function normalizeTujuan(v) {
@@ -1233,7 +1458,20 @@
     return tujuanLookup[candidates[0]];
   }
 
+  // Gudang asal selalu sama, jadi kalau user cuma mengetik kota tujuannya
+  // saja ("SERANG"), lengkapi otomatis jadi "TFJ Pandeglang - SERANG"
+  // supaya formatnya konsisten dengan isi Sheet.
+  function normalisasiTujuanInput() {
+    const el = document.getElementById("uj-tujuan");
+    const v = (el.value || "").trim();
+    if (!v) return;
+    if (v.indexOf("-") !== -1) return;
+    const cocok = bestKotaMatch(v);
+    el.value = `${GUDANG_ASAL} - ${cocok ? cocok.kota : titleCase(v)}`;
+  }
+
   function applyTujuanLookup() {
+    normalisasiTujuanInput();
     const tujuanInput = document.getElementById("uj-tujuan");
     const key = normalizeTujuan(tujuanInput.value || "");
     let match = key ? tujuanLookup[key] : null;
@@ -1286,8 +1524,10 @@
 
     renderLogList("ringkasan-perbaikan", data.recent.perbaikan,
       (r) => r.tindakan, (r) => "Rp" + idr.format(r.harga), "Belum ada data.");
+    // Angka yang ditampilkan di sini adalah UANG JALAN (kolom E), bukan
+    // Invoice (kolom H) -- kolom Invoice sering sengaja dikosongkan.
     renderLogList("ringkasan-uangjalan", data.recent.uangJalan,
-      (r) => r.tujuan, (r) => "Rp" + idr.format(r.invoice), "Belum ada data.");
+      (r) => r.tujuan, (r) => "Rp" + idr.format(r.uangJalan), "Belum ada data.");
     renderLogList("ringkasan-tagihan", data.recent.tagihan,
       (r) => r.bulan, (r) => "Rp" + idr.format(r.tagihan), "Belum ada data.");
 
