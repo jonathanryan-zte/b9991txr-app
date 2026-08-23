@@ -1030,6 +1030,12 @@
   function setZoomBtnLabel(open) {
     ujScanZoomBtn.textContent = open ? "Kecilkan Foto" : "Perbesar Foto";
   }
+  // Foto tampil di dua tempat: thumbnail dan panel perbesar. Keduanya harus
+  // ikut berubah saat foto diputar, termasuk saat panel sedang terbuka.
+  function setScanImage(dataUrl) {
+    ujScanImg.src = dataUrl;
+    if (scanAccordion.classList.contains("open")) scanAccordionImg.src = dataUrl;
+  }
   function openScanAccordion() {
     scanAccordionImg.src = ujScanImg.src;
     scanAccordion.classList.add("open");
@@ -1131,17 +1137,25 @@
 
   // Daftar kota tujuan yang pernah dipakai, diambil dari histori Sheet.
   // Dipakai untuk membetulkan typo hasil OCR (mis. "SERAWG" -> "SERANG").
+  // Truk ini tidak hanya melayani rute dari TFJ Pandeglang -- di Sheet ada juga
+  // rute Mayora, Cikupa, Indofood Cibinong, dan lain-lain. Karena scan surat
+  // jalan SELALU berasal dari TFJ Pandeglang, kota tujuan dicocokkan lebih dulu
+  // ke daftar sempit (khusus rute TFJ Pandeglang). Daftar luas hanya dipakai
+  // sebagai cadangan, supaya kota dari rute lain tidak salah nyangkut.
   function knownKotaList() {
-    const seen = {};
+    const utama = {};
+    const semua = {};
     Object.keys(tujuanLookup || {}).forEach((key) => {
       const entry = tujuanLookup[key];
       const label = String((entry && entry.tujuan) || key);
       const parts = label.split("-");
       if (parts.length < 2) return;
       const kota = parts[parts.length - 1].trim().toUpperCase();
-      if (kota) seen[kota] = true;
+      if (!kota) return;
+      semua[kota] = true;
+      if (/^\s*tfj\s+pandegl/i.test(parts.slice(0, -1).join("-"))) utama[kota] = true;
     });
-    return Object.keys(seen);
+    return { utama: Object.keys(utama), semua: Object.keys(semua) };
   }
 
   // Nama kota selalu ditulis "besar kecil" (Cilegon, Serang, Jakarta Barat)
@@ -1160,10 +1174,7 @@
     return titleCase(str).replace(/\b(Pt|Cv|Ud|Tbk|Pd)\b/g, (m) => m.toUpperCase());
   }
 
-  function bestKotaMatch(raw) {
-    const cand = String(raw || "").toUpperCase().replace(/[^A-Z0-9 ]/g, "").trim();
-    if (!cand) return null;
-    const list = knownKotaList();
+  function cocokkanKota(cand, list) {
     let best = null;
     let bestDist = Infinity;
     list.forEach((kota) => {
@@ -1177,11 +1188,31 @@
     return { kota: titleCase(best), dist: bestDist };
   }
 
+  function bestKotaMatch(raw) {
+    const cand = String(raw || "").toUpperCase().replace(/[^A-Z0-9 ]/g, "").trim();
+    if (!cand) return null;
+    const { utama, semua } = knownKotaList();
+    return cocokkanKota(cand, utama) || cocokkanKota(cand, semua);
+  }
+
   // Cocokkan nama customer hasil OCR ke daftar customer yang sudah pernah
   // dicatat di Sheet. Sengaja konservatif: kalau tidak ada yang cukup mirip,
   // atau ada dua nama yang sama-sama mirip (ambigu), hasil OCR dipakai apa
   // adanya supaya customer baru tidak "dipaksa" jadi customer lama.
+  // Di slip, nama customer sering diikuti kode gudang/SO ("AZRIEL,TK /SO M3 (CN")
+  // sementara di Sheet dicatat pendek saja ("azriel"). Jadi nama dicoba dari
+  // yang terpanjang lalu dipangkas kata demi kata dari belakang; yang paling
+  // panjang dan masih cocok itulah yang dipakai.
   function bestCustomerMatch(raw) {
+    const kata = String(raw || "").toUpperCase().replace(/[^A-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+    for (let n = kata.length; n >= 1; n--) {
+      const cocok = cocokkanCustomer(kata.slice(0, n).join(" "));
+      if (cocok) return cocok;
+    }
+    return null;
+  }
+
+  function cocokkanCustomer(raw) {
     const cand = String(raw || "").toUpperCase().replace(/[^A-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
     if (cand.length < 4 || !customerList.length) return null;
 
@@ -1223,8 +1254,10 @@
     });
 
     if (!best) return null;
-    // toleransi seperempat panjang nama -- nama panjang boleh salah lebih banyak huruf
-    const tol = Math.max(2, Math.floor(cand.length / 4));
+    // toleransi seperempat panjang nama -- nama panjang boleh salah lebih banyak
+    // huruf. Nama pendek diperketat karena potongan nama yang pendek gampang
+    // mirip dengan nama lain yang sebenarnya berbeda.
+    const tol = cand.length <= 6 ? 1 : Math.max(2, Math.floor(cand.length / 4));
     if (bestDist > tol) return null;
     // ambigu: ada kandidat lain yang sama miripnya
     if (secondDist - bestDist < 1 && secondDist <= tol) return null;
@@ -1317,11 +1350,21 @@
     let dataLineIdx = -1;
     let words = null;
 
-    for (let i = 0; i < lines.length; i++) {
+    // Baris data selalu ADA DI BAWAH baris header kolom. Ini penting: baris
+    // "Salesman : ... STOCK POINT PANDEGLANG (M3)" di bagian atas dokumen juga
+    // memuat kata "Pandeglang" dan pernah tertangkap sebagai baris data,
+    // menghasilkan Tujuan "M3" dan Customer berupa tanggal.
+    const headerIdx = lines.findIndex(
+      (l) => /tujuan/i.test(l) && /(gudang|sudang|asal)/i.test(l)
+    );
+
+    for (let i = headerIdx + 1; i < lines.length; i++) {
       const l = lines[i];
       // lewati watermark lokasi foto ("Kabupaten Pandeglang, Banten 42251")
       if (/kabupaten|banten|\bkec\b|\bkel\b/i.test(l)) continue;
-      // lewati baris header kolom ("Gudang Asal  Tujuan  Langganan")
+      // lewati baris identitas di kepala dokumen
+      if (/salesman|stock\s*point|branch/i.test(l)) continue;
+      // lewati baris header kolom itu sendiri
       if (/tujuan/i.test(l) && /(gudang|sudang|asal)/i.test(l)) continue;
 
       const kandidatKata = l.split(/\s+/).filter((w) => /[A-Za-z0-9]/.test(w));
@@ -1483,10 +1526,28 @@
   function normalisasiTujuanInput() {
     const el = document.getElementById("uj-tujuan");
     const v = (el.value || "").trim();
-    if (!v) return;
-    if (v.indexOf("-") !== -1) return;
-    const cocok = bestKotaMatch(v);
-    el.value = `${GUDANG_ASAL} - ${cocok ? cocok.kota : titleCase(v)}`;
+    if (!v || v.indexOf("-") !== -1) return;
+
+    const kota = normalizeTujuan(v);
+
+    // Prefix TFJ Pandeglang hanya boleh ditambahkan kalau rute itu memang
+    // pernah ada. Truk ini juga jalan dari Mayora, Cikupa, Indofood Cibinong,
+    // dan lain-lain -- mengetik "jayanti" tidak berarti dari TFJ Pandeglang.
+    const rutePandeglang = normalizeTujuan(GUDANG_ASAL + " - " + kota);
+    if (tujuanLookup[rutePandeglang]) {
+      el.value = `${GUDANG_ASAL} - ${titleCase(kota)}`;
+      return;
+    }
+
+    // Kalau cuma ada satu rute historis yang berakhir di kota itu, lengkapi
+    // memakai rute tersebut apa adanya.
+    const cocok = Object.keys(tujuanLookup).filter((k) => k.endsWith(" - " + kota));
+    if (cocok.length === 1) {
+      el.value = titleCase(tujuanLookup[cocok[0]].tujuan);
+      return;
+    }
+
+    // Tidak jelas asalnya: biarkan apa yang diketik user, jangan menebak.
   }
 
   function applyTujuanLookup() {
@@ -1651,7 +1712,7 @@
       const rotatedDataUrl = ujScanRotation === 0
         ? ujScanOriginalDataUrl
         : await rotateDataUrl(ujScanOriginalDataUrl, ujScanRotation);
-      ujScanImg.src = rotatedDataUrl;
+      setScanImage(rotatedDataUrl);
       const worker = await getOcrWorker();
 
       let { data } = await worker.recognize(rotatedDataUrl);
@@ -1665,6 +1726,26 @@
         if (countFieldsFound(retryParsed) > countFieldsFound(parsed)) {
           data = retry.data;
           parsed = retryParsed;
+        }
+      }
+
+      // Foto surat jalan sering terambil miring karena dipotret sambil berdiri
+      // di dekat truk. Kalau masih gagal terbaca, coba putar sendiri daripada
+      // menyuruh user menebak arah putarannya.
+      if (countFieldsFound(parsed) < 2) {
+        for (const derajat of [90, 270, 180]) {
+          ujScanStatus.textContent = `Mencoba memutar foto ${derajat} derajat...`;
+          const sudut = (ujScanRotation + derajat) % 360;
+          const diputar = await rotateDataUrl(ujScanOriginalDataUrl, sudut);
+          const hasil = await worker.recognize(diputar);
+          const parsedPutar = parseSpr(hasil.data.text);
+          if (countFieldsFound(parsedPutar) > countFieldsFound(parsed)) {
+            data = hasil.data;
+            parsed = parsedPutar;
+            ujScanRotation = sudut;
+            setScanImage(diputar);
+          }
+          if (countFieldsFound(parsed) >= 3) break;
         }
       }
 
@@ -1695,7 +1776,7 @@
   ujScanRotateBtn.addEventListener("click", async () => {
     ujScanRotation = (ujScanRotation + 90) % 360;
     const rotated = await rotateDataUrl(ujScanOriginalDataUrl, ujScanRotation);
-    ujScanImg.src = rotated;
+    setScanImage(rotated);
   });
 
   ujScanInput.addEventListener("change", async () => {
