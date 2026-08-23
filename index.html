@@ -1154,6 +1154,12 @@
       });
   }
 
+  // Sama seperti titleCase, tapi singkatan badan usaha tetap huruf besar
+  // ("Alva Jaya Lestari, PT" -- bukan "..., Pt").
+  function titleCaseNama(str) {
+    return titleCase(str).replace(/\b(Pt|Cv|Ud|Tbk|Pd)\b/g, (m) => m.toUpperCase());
+  }
+
   function bestKotaMatch(raw) {
     const cand = String(raw || "").toUpperCase().replace(/[^A-Z0-9 ]/g, "").trim();
     if (!cand) return null;
@@ -1182,9 +1188,22 @@
     let best = null, bestDist = Infinity;
     let secondDist = Infinity;
 
+    // Di Sheet nama yang sama sering tertulis dengan besar-kecil berbeda
+    // ("Alva Jaya Lestari" dan "alva jaya lestari"). Tanpa disaring dulu,
+    // keduanya jadi kandidat dengan jarak sama persis, lalu dianggap ambigu
+    // dan koreksinya batal -- justru untuk nama yang paling sering dipakai.
+    // Backend sudah mengurutkan dari yang paling sering, jadi ejaan pertama
+    // yang ditemui itulah yang dipertahankan.
+    const sudahAda = {};
+    const daftarUnik = [];
     customerList.forEach((nama) => {
-      const norm = nama.toUpperCase().replace(/[^A-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
-      if (!norm) return;
+      const norm = String(nama).toUpperCase().replace(/[^A-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+      if (!norm || sudahAda[norm]) return;
+      sudahAda[norm] = true;
+      daftarUnik.push({ nama: nama, norm: norm });
+    });
+
+    daftarUnik.forEach(({ nama, norm }) => {
       let d;
       if (norm === cand) {
         d = 0;
@@ -1209,7 +1228,7 @@
     if (bestDist > tol) return null;
     // ambigu: ada kandidat lain yang sama miripnya
     if (secondDist - bestDist < 1 && secondDist <= tol) return null;
-    return { customer: best, dist: bestDist };
+    return { customer: titleCaseNama(best), dist: bestDist };
   }
 
   function looksLikeGudangAsal(word) {
