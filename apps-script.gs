@@ -14,7 +14,9 @@ function doGet(e) {
 
   if (action === 'summary') {
     try {
-      return ContentService.createTextOutput(JSON.stringify(buildSummary()))
+      var dari = e.parameter && e.parameter.dari;
+      var sampai = e.parameter && e.parameter.sampai;
+      return ContentService.createTextOutput(JSON.stringify(buildSummary(dari, sampai)))
         .setMimeType(ContentService.MimeType.JSON);
     } catch (err) {
       return ContentService.createTextOutput(
@@ -33,45 +35,81 @@ function readTailRows(sheet, startRow, numCols, tailCount) {
   return sheet.getRange(from, 1, lastRow - from + 1, numCols).getValues();
 }
 
-function parseIndoDate(str) {
+// Kolom TANGGAL isinya campur, tergantung baris itu dibuat oleh siapa:
+//  - baris dari aplikasi  -> teks "23 Agu 2026"
+//  - baris yang diketik manual di Sheet -> nilai Date asli, atau teks
+//    "23/08/2026" / "2026-08-23"
+// Versi lama hanya mengenali bentuk pertama, sehingga hampir semua baris
+// lama dianggap tak bertanggal dan totalnya selalu Rp0.
+function parseIndoDate(val) {
+  if (val === null || val === undefined || val === '') return null;
+
+  if (Object.prototype.toString.call(val) === '[object Date]') {
+    if (isNaN(val.getTime())) return null;
+    return new Date(val.getFullYear(), val.getMonth(), val.getDate());
+  }
+
+  var str = String(val).trim();
   if (!str) return null;
-  var parts = String(str).trim().split(/\s+/);
-  if (parts.length < 3) return null;
 
-  var day = parseInt(parts[0], 10);
-  var monthNames = ['jan', 'feb', 'mar', 'apr', 'mei', 'jun', 'jul', 'agu', 'sep', 'okt', 'nov', 'des'];
-  var mIdx = monthNames.indexOf(parts[1].toLowerCase().slice(0, 3));
-  var year = parseInt(parts[2], 10);
+  // "23 Agu 2026" / "23 Agustus 2026"
+  var parts = str.split(/\s+/);
+  if (parts.length >= 3) {
+    var day = parseInt(parts[0], 10);
+    var monthNames = ['jan', 'feb', 'mar', 'apr', 'mei', 'jun', 'jul', 'agu', 'sep', 'okt', 'nov', 'des'];
+    var mIdx = monthNames.indexOf(parts[1].toLowerCase().slice(0, 3));
+    var year = parseInt(parts[2], 10);
+    if (!isNaN(day) && mIdx !== -1 && !isNaN(year)) return new Date(year, mIdx, day);
+  }
 
-  if (isNaN(day) || mIdx === -1 || isNaN(year)) return null;
-  return new Date(year, mIdx, day);
+  // "23/08/2026", "23-08-2026", "23.08.2026"
+  var m = str.match(/^(\d{1,2})[.\-\/](\d{1,2})[.\-\/](\d{2,4})$/);
+  if (m) {
+    var th = Number(m[3]);
+    if (th < 100) th += 2000;
+    return new Date(th, Number(m[2]) - 1, Number(m[1]));
+  }
+
+  // "2026-08-23"
+  m = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+
+  return null;
 }
 
-function isSameDay(a, b) {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+// Tanggal batas dikirim frontend sebagai "YYYY-MM-DD". Dibuat di zona waktu
+// lokal (bukan new Date(str) yang diperlakukan UTC), supaya batas hari tidak
+// bergeser dan baris di tanggal ujung tidak ikut hilang.
+function parseIsoDate(str) {
+  if (!str) return null;
+  var m = String(str).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
 }
 
-function isSameMonth(a, b) {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
-}
+function buildTotals(pb, uj, dari, sampai) {
+  // Rentang mencakup kedua ujungnya: dari jam 00:00 tanggal awal sampai
+  // 23:59 tanggal akhir.
+  var awal = parseIsoDate(dari);
+  var akhir = parseIsoDate(sampai);
+  if (akhir) akhir = new Date(akhir.getFullYear(), akhir.getMonth(), akhir.getDate(), 23, 59, 59);
 
-function buildTotals(pb, uj) {
-  var now = new Date();
-  var totals = {
-    today: { perbaikan: 0, uangJalan: 0, invoice: 0 },
-    bulanIni: { perbaikan: 0, uangJalan: 0, invoice: 0 }
-  };
+  function didalam(d) {
+    if (!d) return false;
+    if (awal && d < awal) return false;
+    if (akhir && d > akhir) return false;
+    return true;
+  }
+
+  var totals = { perbaikan: 0, uangJalan: 0, invoice: 0 };
 
   var pbLast = pb.getLastRow();
   if (pbLast >= 3) {
     // B TANGGAL, C TINDAKAN, D HARGA
     var pbData = pb.getRange(3, 2, pbLast - 2, 3).getValues();
     pbData.forEach(function(r) {
-      var d = parseIndoDate(r[0]);
-      var harga = Number(r[2]) || 0;
-      if (!d) return;
-      if (isSameDay(d, now)) totals.today.perbaikan += harga;
-      if (isSameMonth(d, now)) totals.bulanIni.perbaikan += harga;
+      if (!didalam(parseIndoDate(r[0]))) return;
+      totals.perbaikan += Number(r[2]) || 0;
     });
   }
 
@@ -80,38 +118,29 @@ function buildTotals(pb, uj) {
     // B TANGGAL, C NO DO/SPE, D TUJUAN, E UANG JALAN, F, G, H INVOICE
     var ujData = uj.getRange(3, 2, ujLast - 2, 7).getValues();
     ujData.forEach(function(r) {
-      var d = parseIndoDate(r[0]);
-      var uangJalan = Number(r[3]) || 0;
-      var invoice = Number(r[6]) || 0;
-      if (!d) return;
-      if (isSameDay(d, now)) {
-        totals.today.uangJalan += uangJalan;
-        totals.today.invoice += invoice;
-      }
-      if (isSameMonth(d, now)) {
-        totals.bulanIni.uangJalan += uangJalan;
-        totals.bulanIni.invoice += invoice;
-      }
+      if (!didalam(parseIndoDate(r[0]))) return;
+      totals.uangJalan += Number(r[3]) || 0;
+      totals.invoice += Number(r[6]) || 0;
     });
   }
 
   return totals;
 }
 
-function buildSummary() {
+function buildSummary(dari, sampai) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var pb = ss.getSheetByName('PERBAIKAN');
   var uj = ss.getSheetByName('UANG JALAN');
   var tc = ss.getSheetByName('TAGIHAN DAN CICILAN');
 
-  var selisih = pb.getRange('H1').getValue();
-
-  var pbRows = readTailRows(pb, 3, 7, 8);
-  var ujRows = readTailRows(uj, 3, 9, 8);
-  var tcRows = readTailRows(tc, 3, 5, 6);
+  // Daftar "terakhir" ditampilkan di kotak yang bisa di-scroll, jadi boleh
+  // lebih banyak dari sebelumnya tanpa membuat halaman memanjang.
+  var pbRows = readTailRows(pb, 3, 7, 25);
+  var ujRows = readTailRows(uj, 3, 9, 25);
+  var tcRows = readTailRows(tc, 3, 5, 25);
 
   return {
-    selisih: Number(selisih) || 0,
+    periode: { dari: dari || '', sampai: sampai || '' },
     recent: {
       perbaikan: pbRows.map(function(r) {
         return { tanggal: r[1], tindakan: r[2], harga: Number(r[3]) || 0, bayar: r[4], keterangan: r[6] };
@@ -123,7 +152,7 @@ function buildSummary() {
         return { bulan: r[1], tagihan: Number(r[2]) || 0, cicilan: Number(r[3]) || 0, operasional: Number(r[4]) || 0 };
       }).reverse()
     },
-    totals: buildTotals(pb, uj)
+    totals: buildTotals(pb, uj, dari, sampai)
   };
 }
 

@@ -589,12 +589,52 @@
 
   /* ---------- Ringkasan ---------- */
 
-  .stat-grid {
+  .periode {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .periode-field label {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-bottom: 5px;
+  }
+
+  .periode-preset {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+
+  .periode-preset .scan-mini-btn.active {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
     margin-bottom: 20px;
   }
+
+  /* Tiga daftar riwayat masing-masing dibatasi tingginya dan di-scroll
+     sendiri, supaya halaman Ringkasan tidak memanjang ke bawah. */
+  .log-scroll {
+    max-height: 210px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .log-scroll .log-item:last-child { border-bottom: none; }
 
   .stat-tile {
     background: var(--surface-sunken);
@@ -622,6 +662,14 @@
 
   .stat-tile-value.negative { color: var(--danger); }
   .stat-tile-value.positive { color: var(--success); }
+
+  /* Tiga kotak berjajar di layar HP jadi sempit -- kecilkan supaya angka
+     jutaan tetap muat dalam satu baris. */
+  @media (max-width: 420px) {
+    .stat-tile { padding: 10px 8px; }
+    .stat-tile-label { font-size: 9px; letter-spacing: 0.05em; }
+    .stat-tile-value { font-size: 13px; }
+  }
 
   #panel-ringkasan .log:first-of-type { margin-top: 0; }
 
@@ -907,37 +955,49 @@
 
     <div class="status" id="status-ringkasan"><span class="status-dot"></span><span class="status-text"></span></div>
 
+    <div class="periode">
+      <div class="periode-field">
+        <label for="periode-dari">Dari</label>
+        <input type="date" id="periode-dari">
+      </div>
+      <div class="periode-field">
+        <label for="periode-sampai">Sampai</label>
+        <input type="date" id="periode-sampai">
+      </div>
+    </div>
+    <div class="periode-preset">
+      <button type="button" class="scan-mini-btn" data-periode="30">30 Hari</button>
+      <button type="button" class="scan-mini-btn" data-periode="90">3 Bulan</button>
+      <button type="button" class="scan-mini-btn" data-periode="365">1 Tahun</button>
+    </div>
+
     <div id="ringkasan-body" hidden>
       <div class="stat-grid">
-        <div class="stat-tile" id="stat-selisih">
-          <div class="stat-tile-label">Selisih</div>
-          <div class="stat-tile-value" id="stat-selisih-value">Rp0</div>
+        <div class="stat-tile">
+          <div class="stat-tile-label">Perbaikan</div>
+          <div class="stat-tile-value" id="stat-perbaikan">Rp0</div>
         </div>
         <div class="stat-tile">
-          <div class="stat-tile-label">Perbaikan Hari Ini</div>
-          <div class="stat-tile-value" id="stat-today-perbaikan">Rp0</div>
+          <div class="stat-tile-label">Uang Jalan</div>
+          <div class="stat-tile-value" id="stat-uangjalan">Rp0</div>
         </div>
         <div class="stat-tile">
-          <div class="stat-tile-label">Uang Jalan Bulan Ini</div>
-          <div class="stat-tile-value" id="stat-month-uangjalan">Rp0</div>
-        </div>
-        <div class="stat-tile">
-          <div class="stat-tile-label">Invoice Bulan Ini</div>
-          <div class="stat-tile-value" id="stat-month-invoice">Rp0</div>
+          <div class="stat-tile-label">Invoice</div>
+          <div class="stat-tile-value" id="stat-invoice">Rp0</div>
         </div>
       </div>
 
       <div class="log">
         <p class="log-label">Perbaikan Terakhir</p>
-        <div class="log-list" id="ringkasan-perbaikan"></div>
+        <div class="log-scroll"><div class="log-list" id="ringkasan-perbaikan"></div></div>
       </div>
       <div class="log">
         <p class="log-label">Uang Jalan Terakhir</p>
-        <div class="log-list" id="ringkasan-uangjalan"></div>
+        <div class="log-scroll"><div class="log-list" id="ringkasan-uangjalan"></div></div>
       </div>
       <div class="log">
         <p class="log-label">Tagihan &amp; Cicilan Terakhir</p>
-        <div class="log-list" id="ringkasan-tagihan"></div>
+        <div class="log-scroll"><div class="log-list" id="ringkasan-tagihan"></div></div>
       </div>
     </div>
   </div>
@@ -1595,13 +1655,9 @@
   }
 
   function renderRingkasan(data) {
-    const selisihEl = document.getElementById("stat-selisih-value");
-    selisihEl.textContent = "Rp" + idr.format(data.selisih);
-    selisihEl.className = "stat-tile-value " + (data.selisih < 0 ? "negative" : "positive");
-
-    document.getElementById("stat-today-perbaikan").textContent = "Rp" + idr.format(data.totals.today.perbaikan);
-    document.getElementById("stat-month-uangjalan").textContent = "Rp" + idr.format(data.totals.bulanIni.uangJalan);
-    document.getElementById("stat-month-invoice").textContent = "Rp" + idr.format(data.totals.bulanIni.invoice);
+    document.getElementById("stat-perbaikan").textContent = "Rp" + idr.format(data.totals.perbaikan);
+    document.getElementById("stat-uangjalan").textContent = "Rp" + idr.format(data.totals.uangJalan);
+    document.getElementById("stat-invoice").textContent = "Rp" + idr.format(data.totals.invoice);
 
     renderLogList("ringkasan-perbaikan", data.recent.perbaikan,
       (r) => r.tindakan, (r) => "Rp" + idr.format(r.harga), "Belum ada data.");
@@ -1615,13 +1671,56 @@
     document.getElementById("ringkasan-body").hidden = false;
   }
 
+  // ---- rentang tanggal ringkasan ----
+  const periodeDari = document.getElementById("periode-dari");
+  const periodeSampai = document.getElementById("periode-sampai");
+
+  // Sengaja tidak memakai toISOString(): di WIB (UTC+7) tengah malam waktu
+  // lokal masih tanggal kemarin dalam UTC, jadi tanggalnya bisa mundur sehari.
+  function geserHari(iso, jumlah) {
+    const d = new Date(iso + "T00:00:00");
+    d.setDate(d.getDate() + jumlah);
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
+
+  function setPeriode(jumlahHari) {
+    const hariIni = todayISO();
+    periodeSampai.value = hariIni;
+    periodeDari.value = geserHari(hariIni, -(jumlahHari - 1));
+    tandaiPresetAktif(jumlahHari);
+  }
+
+  function tandaiPresetAktif(jumlahHari) {
+    document.querySelectorAll(".periode-preset .scan-mini-btn").forEach((b) => {
+      b.classList.toggle("active", Number(b.dataset.periode) === jumlahHari);
+    });
+  }
+
+  // Default 1 bulan terakhir.
+  setPeriode(30);
+
+  document.querySelectorAll(".periode-preset .scan-mini-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      setPeriode(Number(btn.dataset.periode));
+      loadRingkasan();
+    });
+  });
+
+  [periodeDari, periodeSampai].forEach((el) => {
+    el.addEventListener("change", () => {
+      tandaiPresetAktif(null); // tanggal diatur sendiri, bukan preset
+      loadRingkasan();
+    });
+  });
+
   let ringkasanLoading = false;
   async function loadRingkasan() {
     if (ringkasanLoading) return;
     ringkasanLoading = true;
     clearStatus("ringkasan");
     try {
-      const res = await fetch(ENDPOINT + "?action=summary");
+      const q = `?action=summary&dari=${encodeURIComponent(periodeDari.value)}&sampai=${encodeURIComponent(periodeSampai.value)}`;
+      const res = await fetch(ENDPOINT + q);
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       renderRingkasan(data);
