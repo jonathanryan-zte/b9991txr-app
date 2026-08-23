@@ -10,11 +10,11 @@ A single-page web app for logging truck expenses for one vehicle (B 9991 TXR, Hi
 - `apps-script.gs` — Google Apps Script source, deployed as a Web App bound to the Google Sheet. This is the only backend.
 - `manifest.json`, `sw.js`, `icon-192.png`, `icon-512.png`, `icon-512-maskable.png` — PWA install support (installable on iOS via "Add to Home Screen").
 
-**Deployment is two separate manual steps with no CI:**
-1. `index.html` (+ manifest/sw/icons) is hosted on GitHub Pages. Deploying = committing/uploading the file to the repo; GitHub Pages serves it as-is.
-2. `apps-script.gs` is pasted manually into the Apps Script editor (Extensions > Apps Script from the Google Sheet), then redeployed via Deploy > Manage deployments > New version. The deployed Web App URL is hardcoded in `index.html` as `ENDPOINT` — changing Apps Script code alone does nothing until you redeploy a new version there.
+**Deployment is two separate steps with no CI:**
+1. `index.html` (+ manifest/sw/icons) is hosted on GitHub Pages at `https://jonathanryan-zte.github.io/b9991txr-app/`, from `git@github.com:jonathanryan-zte/b9991txr-app.git` (branch `main`). This working directory is a clone of it and pushes over SSH, so deploying the frontend is just commit + push. Pages takes up to a minute to serve the new file — verify with `curl` against the live URL and grep for a symbol only the new version has, rather than assuming.
+2. `apps-script.gs` goes into the Apps Script editor, then Deploy > Manage deployments > New version. The deployed Web App URL is hardcoded in `index.html` as `ENDPOINT` — changing Apps Script code alone does nothing until a new version is deployed there. The bound project is "API b9991pxr" (`script.google.com/home/projects/1wz6Qtf2JqYsIHxSDUVLEaBI-kfvCrwBAzhheAbfEciuaDU6KmXJxq13u/edit`). It can be driven through the Claude in Chrome extension using the user's own Google session; paste large code via the clipboard (`pbcopy` then Cmd+A/Cmd+V) because a hand-retyped paste has silently truncated before and produced `Unexpected end of input`. **Always confirm with the user before clicking Deploy** — it changes the live backend the truck operator depends on. To check the editor's content matches this repo without dumping source through the page, hash it in-page (`monaco.editor.getModels()[0].getValue()` + SHA-256) and compare; note the editor strips the file's trailing newline.
 
-There are no tests, no linter, and no local dev server config — verification is done by opening `index.html` (e.g. `python3 -m http.server` + a browser) and by calling the deployed Apps Script URL directly with `curl`.
+There are no tests, no linter, and no local dev server config. Verification is done by exercising the real functions in a browser against realistic inputs (paste actual OCR text into `parseSpr` rather than idealized samples — every OCR bug so far was invisible to clean test data), and by calling the deployed Apps Script URL with `curl`. Those `curl` calls to `script.google.com` are slow, often over a minute; run them in the background rather than assuming they hung.
 
 ## Architecture
 
