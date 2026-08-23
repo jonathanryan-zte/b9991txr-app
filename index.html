@@ -1199,17 +1199,12 @@
   // dicatat di Sheet. Sengaja konservatif: kalau tidak ada yang cukup mirip,
   // atau ada dua nama yang sama-sama mirip (ambigu), hasil OCR dipakai apa
   // adanya supaya customer baru tidak "dipaksa" jadi customer lama.
-  // Di slip, nama customer sering diikuti kode gudang/SO ("AZRIEL,TK /SO M3 (CN")
-  // sementara di Sheet dicatat pendek saja ("azriel"). Jadi nama dicoba dari
-  // yang terpanjang lalu dipangkas kata demi kata dari belakang; yang paling
-  // panjang dan masih cocok itulah yang dipakai.
+  // Nama customer diambil UTUH seperti tercetak di slip. Histori Sheet dipakai
+  // hanya untuk membetulkan salah baca huruf pada nama yang sama, bukan untuk
+  // memendekkannya jadi nama lain yang lebih singkat. Nama panjang yang belum
+  // pernah ada akan masuk apa adanya, lalu jadi acuan untuk scan berikutnya.
   function bestCustomerMatch(raw) {
-    const kata = String(raw || "").toUpperCase().replace(/[^A-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
-    for (let n = kata.length; n >= 1; n--) {
-      const cocok = cocokkanCustomer(kata.slice(0, n).join(" "));
-      if (cocok) return cocok;
-    }
-    return null;
+    return cocokkanCustomer(raw);
   }
 
   function cocokkanCustomer(raw) {
@@ -1278,11 +1273,17 @@
     return u.length >= 6 && levenshtein(u, "PANDEGLANG") <= 4;
   }
 
+  // Buang hanya potongan yang jelas rusak di ujung nama: sisa kata yang
+  // terpotong tepi kertas ("(CN" dari "(CN...)") dan huruf tunggal ("P" dari
+  // "PT"). Token pendek yang sah seperti "TK", "M3", "PT" harus tetap ikut --
+  // user memang mencatat nama lengkap beserta kodenya di Sheet.
   function cleanCustomer(str) {
     const words = String(str || "").trim().split(/\s+/).filter(Boolean);
     while (words.length > 1) {
       const last = words[words.length - 1].replace(/[,.]+$/, "");
-      if (/^[^A-Za-z0-9]+$/.test(last) || (last.length <= 2 && !/^(PT|CV|UD)$/i.test(last))) {
+      const isi = last.replace(/[^A-Za-z0-9]/g, "");
+      const terpotong = /[([{]/.test(last) && !/[)\]}]/.test(last);
+      if (!isi || terpotong || isi.length <= 1) {
         words.pop();
       } else {
         break;
