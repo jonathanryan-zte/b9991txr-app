@@ -887,10 +887,10 @@
           </div>
         </div>
         <div class="field">
-          <label for="uj-invoice">Invoice</label>
+          <label for="uj-invoice">Invoice <span class="opt">(opsional)</span></label>
           <div class="amount-wrap">
             <span class="prefix">Rp</span>
-            <input type="number" id="uj-invoice" placeholder="0" min="0" step="1" inputmode="numeric" required>
+            <input type="number" id="uj-invoice" placeholder="0" min="0" step="1" inputmode="numeric">
           </div>
         </div>
       </div>
@@ -1954,9 +1954,19 @@
     const tujuan = document.getElementById("uj-tujuan").value.trim();
     const uangJalan = document.getElementById("uj-uangjalan").value;
     const invoice = document.getElementById("uj-invoice").value;
-    if (!tanggal || !customer || !tujuan || uangJalan === "" || invoice === "") return null;
-    return { tanggal: fmtDateID(tanggal), noDoSpe, tujuan, uangJalan: Number(uangJalan), invoice: Number(invoice), customer };
-  }, (p) => [p.tujuan + " &mdash; " + p.customer, "Rp" + idr.format(p.invoice)],
+    if (!tanggal || !customer || !tujuan || uangJalan === "") return null;
+    // Invoice boleh dikosongkan. Kalau kosong dikirim sebagai string kosong,
+    // bukan 0, supaya sel kolom H di Sheet ikut kosong seperti baris-baris
+    // lama -- angka 0 akan terbaca sebagai nilai sungguhan saat dijumlahkan.
+    return {
+      tanggal: fmtDateID(tanggal),
+      noDoSpe,
+      tujuan,
+      uangJalan: Number(uangJalan),
+      invoice: invoice === "" ? "" : Number(invoice),
+      customer
+    };
+  }, (p) => [p.tujuan + " &mdash; " + p.customer, "Rp" + idr.format(p.uangJalan)],
   () => { document.getElementById("uj-tanggal").value = todayISO(); resetScan(); ujLookupHint.hidden = true; });
 
   // ---- TAGIHAN & CICILAN ----
