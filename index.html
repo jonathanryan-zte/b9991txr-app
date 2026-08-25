@@ -337,6 +337,13 @@
     color: var(--accent);
   }
 
+  /* peringatan duplikat -- dibedakan dari petunjuk biasa */
+  .lookup-hint.dup { color: var(--danger); }
+
+  input.dup-warn {
+    border-color: var(--danger);
+  }
+
   .scan-thumb-btn {
     appearance: none;
     border: none;
@@ -867,6 +874,7 @@
         <div class="field">
           <label for="uj-nodo">No DO / SPE <span class="opt">(opsional)</span></label>
           <input type="text" id="uj-nodo" placeholder="mis. 73010658">
+          <p class="lookup-hint dup" id="uj-nodo-hint" hidden></p>
         </div>
         <div class="field">
           <label for="uj-customer">Customer</label>
@@ -1554,14 +1562,39 @@
   const ujLookupHint = document.getElementById("uj-lookup-hint");
   let tujuanLookup = {};
   let customerList = [];
+  let noDoTerdaftar = {};
 
   fetch(ENDPOINT + "?action=lookup")
     .then((r) => r.json())
     .then((data) => {
       tujuanLookup = data.tujuan || {};
       customerList = Array.isArray(data.customers) ? data.customers : [];
+      noDoTerdaftar = {};
+      (Array.isArray(data.noDoSpe) ? data.noDoSpe : []).forEach((v) => {
+        noDoTerdaftar[String(v).trim().toLowerCase()] = true;
+      });
+      cekNoDoDuplikat();
     })
     .catch(() => {});
+
+  // Peringatan dini saja. Penolakan yang sebenarnya dilakukan Apps Script saat
+  // menyimpan, karena daftar ini bisa basi -- baris bisa saja ditambah dari HP
+  // lain atau diketik langsung di Sheet setelah halaman ini dibuka.
+  const ujNoDoInput = document.getElementById("uj-nodo");
+  const ujNoDoHint = document.getElementById("uj-nodo-hint");
+
+  function cekNoDoDuplikat() {
+    const v = ujNoDoInput.value.trim().toLowerCase();
+    const duplikat = !!v && noDoTerdaftar[v];
+    ujNoDoHint.hidden = !duplikat;
+    ujNoDoInput.classList.toggle("dup-warn", duplikat);
+    if (duplikat) {
+      ujNoDoHint.textContent = "No DO/SPE ini sudah pernah dicatat. Tidak bisa disimpan lagi.";
+    }
+    return duplikat;
+  }
+
+  ujNoDoInput.addEventListener("input", cekNoDoDuplikat);
 
   function normalizeTujuan(v) {
     return v.trim().toLowerCase().replace(/\s+/g, " ");
@@ -1897,11 +1930,15 @@
       body: JSON.stringify(payload)
     });
     const data = await res.json();
-    if (data.status !== "ok") throw new Error(data.message || "Gagal menyimpan");
+    if (data.status !== "ok") {
+      const err = new Error(data.message || "Gagal menyimpan");
+      err.code = data.code || "";
+      throw err;
+    }
     return data;
   }
 
-  function wireForm(key, sheetName, buildPayload, buildLog, resetExtra) {
+  function wireForm(key, sheetName, buildPayload, buildLog, resetExtra, onSaved) {
     const form = document.getElementById("form-" + key);
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -1919,11 +1956,24 @@
         setStatus(key, "ok", `Tersimpan &middot; baris <b>${result.row}</b> di sheet ${sheetName.replace("_"," ")}`);
         const [main, meta] = buildLog(payload);
         addLogRow(key, main, meta);
+        if (onSaved) onSaved(payload);
         form.reset();
         if (resetExtra) resetExtra();
         loadRingkasan();
       } catch (err) {
-        setStatus(key, "err", "Gagal menyimpan: " + err.message);
+        // Penolakan yang disengaja (mis. No DO/SPE dobel) bukan kegagalan
+        // teknis, jadi pesannya tidak diawali "Gagal menyimpan". Form sengaja
+        // TIDAK di-reset di jalur ini supaya isian user tidak hilang.
+        if (err.code === "DUPLIKAT") {
+          setStatus(key, "err", "Ditolak &middot; " + err.message);
+          if (key === "uangjalan") {
+            noDoTerdaftar[document.getElementById("uj-nodo").value.trim().toLowerCase()] = true;
+            cekNoDoDuplikat();
+            document.getElementById("uj-nodo").focus();
+          }
+        } else {
+          setStatus(key, "err", "Gagal menyimpan: " + err.message);
+        }
       } finally {
         btn.disabled = false;
         btn.textContent = btn.dataset.label || btn.textContent.replace("Menyimpan...", "");
@@ -1967,7 +2017,15 @@
       customer
     };
   }, (p) => [p.tujuan + " &mdash; " + p.customer, "Rp" + idr.format(p.uangJalan)],
-  () => { document.getElementById("uj-tanggal").value = todayISO(); resetScan(); ujLookupHint.hidden = true; });
+  () => {
+    document.getElementById("uj-tanggal").value = todayISO();
+    resetScan();
+    ujLookupHint.hidden = true;
+    cekNoDoDuplikat();
+  },
+  // catat No DO/SPE yang baru tersimpan supaya langsung terdeteksi kalau
+  // nomor yang sama diisikan lagi tanpa perlu memuat ulang halaman
+  (p) => { if (p.noDoSpe) noDoTerdaftar[String(p.noDoSpe).trim().toLowerCase()] = true; });
 
   // ---- TAGIHAN & CICILAN ----
   wireForm("tagihan", "TAGIHAN_CICILAN", () => {

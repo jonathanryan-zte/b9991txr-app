@@ -160,7 +160,14 @@ function buildTujuanLookup() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName('UANG JALAN');
   var lastRow = sheet.getLastRow();
-  if (lastRow < 3) return { tujuan: {}, customers: [] };
+  if (lastRow < 3) return { tujuan: {}, customers: [], noDoSpe: [] };
+
+  // C=NO DO/SPE, dibaca terpisah untuk peringatan duplikat di frontend.
+  var noDoSet = {};
+  sheet.getRange(3, 3, lastRow - 2, 1).getValues().forEach(function(r) {
+    var v = String(r[0] == null ? '' : r[0]).trim();
+    if (v) noDoSet[v.toLowerCase()] = true;
+  });
 
   // D=TUJUAN, E=UANG JALAN, F,G=(diabaikan), H=INVOICE, I=CUSTOMER
   var data = sheet.getRange(3, 4, lastRow - 2, 6).getValues();
@@ -220,7 +227,7 @@ function buildTujuanLookup() {
     return customerCounts[b] - customerCounts[a];
   });
 
-  return { tujuan: map, customers: customers };
+  return { tujuan: map, customers: customers, noDoSpe: Object.keys(noDoSet) };
 }
 
 function doPost(e) {
@@ -248,8 +255,10 @@ function doPost(e) {
     ).setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {
+    // code dipakai frontend untuk membedakan penolakan yang disengaja
+    // (mis. DUPLIKAT) dari kegagalan teknis.
     return ContentService.createTextOutput(
-      JSON.stringify({ status: 'error', message: err.message })
+      JSON.stringify({ status: 'error', code: err.code || '', message: err.message })
     ).setMimeType(ContentService.MimeType.JSON);
   }
 }
@@ -282,8 +291,37 @@ function addPerbaikan(ss, body) {
   return row;
 }
 
+// Cari baris yang sudah memakai No DO/SPE yang sama. Dikembalikan nomor
+// barisnya supaya pesan penolakan bisa menyebut lokasinya di Sheet.
+function cariBarisNoDoSpe(sheet, noDoSpe) {
+  var kunci = String(noDoSpe == null ? '' : noDoSpe).trim().toLowerCase();
+  if (!kunci) return 0;
+
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 3) return 0;
+
+  var data = sheet.getRange(3, 3, lastRow - 2, 1).getValues(); // C NO DO/SPE
+  for (var i = 0; i < data.length; i++) {
+    if (String(data[i][0] == null ? '' : data[i][0]).trim().toLowerCase() === kunci) {
+      return i + 3;
+    }
+  }
+  return 0;
+}
+
 function addUangJalan(ss, body) {
   var sheet = ss.getSheetByName('UANG JALAN');
+
+  // Tolak sebelum menulis apa pun. No DO/SPE boleh kosong (opsional), tapi
+  // kalau diisi tidak boleh sama dengan baris yang sudah ada.
+  var barisSama = cariBarisNoDoSpe(sheet, body.noDoSpe);
+  if (barisSama) {
+    var err = new Error('No DO/SPE ' + String(body.noDoSpe).trim() +
+      ' sudah pernah dicatat di baris ' + barisSama + '. Data tidak disimpan.');
+    err.code = 'DUPLIKAT';
+    throw err;
+  }
+
   var row = sheet.getLastRow() + 1;
   var no = nextNo(sheet, 1, 3);
 
