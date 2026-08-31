@@ -1360,6 +1360,22 @@
     return words.join(" ").replace(/[,.]+$/, "").trim();
   }
 
+  // Tahun hasil OCR yang jauh dari tahun berjalan hampir pasti salah baca.
+  function isTahunMasukAkal(y) {
+    const tahun = Number(String(y).length === 2 ? "20" + y : y);
+    const sekarang = new Date().getFullYear();
+    return tahun >= sekarang - 1 && tahun <= sekarang + 1;
+  }
+
+  // Ambil nomor D/O dari potongan token di depan token gudang asal.
+  function ambilNoDo(tokens) {
+    for (const t of tokens) {
+      const bersih = String(t).replace(/[^0-9A-Za-z.\-\/]/g, "");
+      if (/^\d{6,10}$/.test(bersih)) return bersih;
+    }
+    return "";
+  }
+
   function isTanggalMasukAkal(d, m) {
     const hari = Number(d);
     const bulan = Number(m);
@@ -1387,24 +1403,32 @@
     if (muatMatch && isTanggalMasukAkal(muatMatch[1], muatMatch[2])) {
       result.tanggal = toIsoDate(muatMatch[1], muatMatch[2], muatMatch[3]);
     } else {
-      const semua = text.match(/\b\d{1,2}\s*[.,\-\/]\s*\d{1,2}\s*[.,\-\/]\s*20\d{2}\b/g) || [];
+      // Spasi ikut dianggap pemisah: pada cetakan dot-matrix yang buram titik
+      // pertama sering hilang, sehingga baris data terbaca "31 08.2026".
+      const semua = text.match(/\b\d{1,2}\s*[.,\-\/ ]\s*\d{1,2}\s*[.,\-\/ ]\s*20\d{2}\b/g) || [];
+      const kandidatValid = [];
       for (const kandidat of semua) {
-        const bagian = kandidat.split(/\s*[.,\-\/]\s*/);
-        if (isTanggalMasukAkal(bagian[0], bagian[1])) {
-          result.tanggal = toIsoDate(bagian[0], bagian[1], bagian[2]);
-          break;
-        }
+        const bagian = kandidat.split(/\s*[.,\-\/ ]\s*/);
+        if (isTanggalMasukAkal(bagian[0], bagian[1])) kandidatValid.push(bagian);
       }
+      // Tahun yang jauh dari tahun berjalan hampir pasti salah baca OCR
+      // (pernah nyata: "31.08.2026" di baris Salesman terbaca "31.08.2020").
+      // Dahulukan kandidat dengan tahun masuk akal, baru yang lain.
+      const dipilih = kandidatValid.find((b) => isTahunMasukAkal(b[2])) || kandidatValid[0];
+      if (dipilih) result.tanggal = toIsoDate(dipilih[0], dipilih[1], dipilih[2]);
     }
 
-    // No SPR/SPE (pojok kanan atas) jadi sumber utama No DO/SPE
-    const sprMatch = text.match(/No\.?\s*SP[RE][:\.\s]*([0-9]{4,})/i);
-    if (sprMatch) result.noDoSpe = sprMatch[1];
-    if (!result.noDoSpe) {
-      for (const line of lines) {
-        const m = line.match(/No\.?\s*D\s*[\/il]?\s*[O0][:\.\s]*([0-9]{5,})/i);
-        if (m) { result.noDoSpe = m[1]; break; }
-      }
+    // Nomor SPE di kepala dokumen ("No.SPE : 34672574") cuma jadi CADANGAN.
+    // Yang dicatat user di Sheet adalah nomor D/O dari baris data, dan pada
+    // foto buram angka di kepala dokumen sering salah baca satu digit.
+    // Labelnya sendiri juga sering rusak -- satu scan nyata terbaca
+    // "Ro.BPE : 34572574" -- makanya polanya dibuat toleran huruf mirip.
+    const sprMatch = text.match(/\b[NRMH][o0]?\.?\s*[SB8]P[REB8]\s*[:;.\s]*([0-9]{5,})/i);
+    const noSpeKepala = sprMatch ? sprMatch[1] : "";
+    let noDoLabel = "";
+    for (const line of lines) {
+      const m = line.match(/No\.?\s*D\s*[\/il]?\s*[O0][:\.\s]*([0-9]{5,})/i);
+      if (m) { noDoLabel = m[1]; break; }
     }
 
     // Baris data utama: Tgl D/O, No D/O, (kode lain), Gudang Asal, Tujuan, Langganan
@@ -1440,6 +1464,11 @@
       const gi = kandidatKata.findIndex(isPandeglaToken);
       if (gi !== -1) {
         words = kandidatKata.slice(gi + 1);
+        // Nomor D/O ada di baris yang sama, SEBELUM token gudang asal:
+        // "31.08.2026 76819097 1708 TFJ Pandegla Cilegon ...".
+        // Diambil token yang murni angka 6-10 digit dan bukan potongan
+        // tanggal (tanggal selalu masih membawa titik/garis pemisah).
+        result.noDoSpe = ambilNoDo(kandidatKata.slice(0, gi));
         dataLineIdx = i;
         break;
       }
@@ -1464,6 +1493,10 @@
         }
       }
     }
+
+    // Kalau baris data tidak memberi nomor D/O, baru pakai cadangan:
+    // label "No. D/O" di kepala dokumen, lalu nomor SPE.
+    if (!result.noDoSpe) result.noDoSpe = noDoLabel || noSpeKepala;
 
     if (words && words.length) {
       // Kota tujuan: coba cocokkan 1 atau 2 kata pertama ke daftar kota historis,
