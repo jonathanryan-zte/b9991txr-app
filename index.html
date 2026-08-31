@@ -1138,6 +1138,9 @@
     }
   });
 
+  // Koordinat kata dibutuhkan untuk baca ulang nomor SPE secara zoom.
+  const OCR_OUTPUT = { text: true, blocks: true };
+
   let ocrWorkerPromise = null;
   function getOcrWorker() {
     if (!ocrWorkerPromise) {
@@ -1367,6 +1370,11 @@
     return tahun >= sekarang - 1 && tahun <= sekarang + 1;
   }
 
+  // Label "No.SPE" sering rusak dibaca OCR pada foto buram (nyatanya terbaca
+  // "Ro.BPE"), jadi huruf-huruf yang mirip ikut diterima.
+  const POLA_NO_SPE = /\b[NRMH][o0]?\.?\s*[SB8]P[REB8]\s*[:;.\s]*([0-9]{5,})/i;
+  const POLA_LABEL_SPE = /\b[NRMH][o0]?\.?\s*[SB8]P[REB8]\b/i;
+
   // Ambil nomor D/O dari potongan token di depan token gudang asal.
   function ambilNoDo(tokens) {
     for (const t of tokens) {
@@ -1418,14 +1426,15 @@
       if (dipilih) result.tanggal = toIsoDate(dipilih[0], dipilih[1], dipilih[2]);
     }
 
-    // Nomor SPE di kepala dokumen ("No.SPE : 34672574") cuma jadi CADANGAN.
-    // Yang dicatat user di Sheet adalah nomor D/O dari baris data, dan pada
-    // foto buram angka di kepala dokumen sering salah baca satu digit.
-    // Labelnya sendiri juga sering rusak -- satu scan nyata terbaca
-    // "Ro.BPE : 34572574" -- makanya polanya dibuat toleran huruf mirip.
-    const sprMatch = text.match(/\b[NRMH][o0]?\.?\s*[SB8]P[REB8]\s*[:;.\s]*([0-9]{5,})/i);
+    // Nomor SPE di kepala dokumen ("No.SPE : 34672574") adalah SUMBER UTAMA
+    // No DO/SPE -- ini keputusan user, jangan dibalik. Nomor D/O di baris data
+    // hanya cadangan kalau nomor SPE tidak terbaca sama sekali.
+    // Label SPE sering rusak dibaca OCR pada foto buram (satu scan nyata
+    // terbaca "Ro.BPE : 34572574"), makanya polanya toleran huruf mirip.
+    const sprMatch = text.match(POLA_NO_SPE);
     const noSpeKepala = sprMatch ? sprMatch[1] : "";
     let noDoLabel = "";
+    let noDoBarisData = "";
     for (const line of lines) {
       const m = line.match(/No\.?\s*D\s*[\/il]?\s*[O0][:\.\s]*([0-9]{5,})/i);
       if (m) { noDoLabel = m[1]; break; }
@@ -1466,9 +1475,8 @@
         words = kandidatKata.slice(gi + 1);
         // Nomor D/O ada di baris yang sama, SEBELUM token gudang asal:
         // "31.08.2026 76819097 1708 TFJ Pandegla Cilegon ...".
-        // Diambil token yang murni angka 6-10 digit dan bukan potongan
-        // tanggal (tanggal selalu masih membawa titik/garis pemisah).
-        result.noDoSpe = ambilNoDo(kandidatKata.slice(0, gi));
+        // Disimpan sebagai cadangan saja; yang utama tetap nomor SPE.
+        noDoBarisData = ambilNoDo(kandidatKata.slice(0, gi));
         dataLineIdx = i;
         break;
       }
@@ -1479,7 +1487,7 @@
     if (!words) {
       const dataLineMatch = text.match(/\d{1,2}[.\-\/]\d{1,2}[.\-\/]\d{2,4}\s+(\d{5,})\s+(.+)/);
       if (dataLineMatch) {
-        if (!result.noDoSpe) result.noDoSpe = dataLineMatch[1];
+        if (!noDoBarisData) noDoBarisData = dataLineMatch[1];
         dataLineIdx = lines.findIndex((l) =>
           /\d{1,2}[.\-\/]\d{1,2}[.\-\/]\d{2,4}\s+\d{5,}\s+/.test(l)
         );
@@ -1494,9 +1502,10 @@
       }
     }
 
-    // Kalau baris data tidak memberi nomor D/O, baru pakai cadangan:
-    // label "No. D/O" di kepala dokumen, lalu nomor SPE.
-    if (!result.noDoSpe) result.noDoSpe = noDoLabel || noSpeKepala;
+    // Urutan sumber No DO/SPE: nomor SPE kepala dokumen (utama), lalu label
+    // "No. D/O", terakhir nomor D/O dari baris data.
+    result.noDoSpe = noSpeKepala || noDoLabel || noDoBarisData;
+    result.noDoSpeSumber = noSpeKepala ? "spe" : noDoLabel ? "label" : noDoBarisData ? "do" : "";
 
     if (words && words.length) {
       // Kota tujuan: coba cocokkan 1 atau 2 kata pertama ke daftar kota historis,
@@ -1865,6 +1874,90 @@
     });
   }
 
+  // Potong sebagian gambar lalu perbesar, untuk dibaca ulang oleh OCR.
+  function cropDataUrl(dataUrl, bbox, pad, scale) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const x0 = Math.max(0, bbox.x0 - pad);
+        const y0 = Math.max(0, bbox.y0 - pad);
+        const x1 = Math.min(img.width, bbox.x1 + pad);
+        const y1 = Math.min(img.height, bbox.y1 + pad);
+        if (x1 <= x0 || y1 <= y0) { resolve(null); return; }
+        const canvas = document.createElement("canvas");
+        canvas.width = (x1 - x0) * scale;
+        canvas.height = (y1 - y0) * scale;
+        const ctx = canvas.getContext("2d");
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(img, x0, y0, x1 - x0, y1 - y0, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/png"));
+      };
+      img.onerror = () => resolve(null);
+      img.src = dataUrl;
+    });
+  }
+
+  // Kotak posisi angka di sebelah label "No.SPE", diambil dari koordinat kata
+  // hasil OCR. Angka bisa terpecah jadi beberapa kata, jadi kata-kata angka
+  // yang berurutan digabung kotaknya.
+  function bboxNomorSpe(data) {
+    const lines = (data && data.lines) || [];
+    for (const line of lines) {
+      if (!POLA_LABEL_SPE.test(line.text || "")) continue;
+      const words = line.words || [];
+      const labelIdx = words.findIndex((w) => /[SB8]P[REB8]/i.test(w.text || ""));
+      let bbox = null;
+      for (let i = labelIdx + 1; i < words.length; i++) {
+        const t = String(words[i].text || "").trim();
+        if (/^[0-9]{1,12}$/.test(t)) {
+          const b = words[i].bbox;
+          bbox = bbox
+            ? { x0: Math.min(bbox.x0, b.x0), y0: Math.min(bbox.y0, b.y0),
+                x1: Math.max(bbox.x1, b.x1), y1: Math.max(bbox.y1, b.y1) }
+            : { x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1 };
+        } else if (bbox) {
+          break;
+        }
+      }
+      if (bbox) return bbox;
+    }
+    return null;
+  }
+
+  // OCR khusus angka pada satu potongan gambar.
+  async function bacaAngka(worker, dataUrl) {
+    try {
+      await worker.setParameters({
+        tessedit_char_whitelist: "0123456789",
+        tessedit_pageseg_mode: "7"
+      });
+      const hasil = await worker.recognize(dataUrl);
+      return String(hasil.data.text || "").replace(/[^0-9]/g, "");
+    } catch (err) {
+      return "";
+    } finally {
+      await worker.setParameters({
+        tessedit_char_whitelist: "",
+        tessedit_pageseg_mode: "3"
+      });
+    }
+  }
+
+  // Baca ulang nomor SPE dari potongan gambar yang diperbesar. Pada foto buram
+  // angka di kepala dokumen sering meleset satu digit walaupun sisa dokumen
+  // terbaca benar (nyatanya 34672574 terbaca 34572574); potongan yang
+  // diperbesar 4x dan dibaca dengan whitelist angka membacanya benar.
+  async function perbaikiNomorSpe(worker, data, gambar, parsed) {
+    if (parsed.noDoSpeSumber !== "spe" || !gambar) return;
+    const bbox = bboxNomorSpe(data);
+    if (!bbox) return;
+    const potongan = await cropDataUrl(gambar, bbox, 8, 4);
+    if (!potongan) return;
+    const angka = await bacaAngka(worker, potongan);
+    if (/^[0-9]{6,12}$/.test(angka)) parsed.noDoSpe = angka;
+  }
+
   function countFieldsFound(parsed) {
     return ["tanggal", "noDoSpe", "tujuan", "customer"].filter((k) => parsed[k]).length;
   }
@@ -1881,13 +1974,16 @@
       setScanImage(rotatedDataUrl);
       const worker = await getOcrWorker();
 
-      let { data } = await worker.recognize(rotatedDataUrl);
+      // gambarSumber selalu versi gambar (belum ditajamkan) yang koordinat
+      // katanya sepadan dengan `data` -- dipakai untuk crop baca ulang.
+      let gambarSumber = rotatedDataUrl;
+      let { data } = await worker.recognize(rotatedDataUrl, {}, OCR_OUTPUT);
       let parsed = parseSpr(data.text);
 
       if (countFieldsFound(parsed) < 2) {
         ujScanStatus.textContent = "Mencoba baca ulang dengan penajaman gambar...";
         const cleanedDataUrl = await preprocessForOcr(rotatedDataUrl);
-        const retry = await worker.recognize(cleanedDataUrl);
+        const retry = await worker.recognize(cleanedDataUrl, {}, OCR_OUTPUT);
         const retryParsed = parseSpr(retry.data.text);
         if (countFieldsFound(retryParsed) > countFieldsFound(parsed)) {
           data = retry.data;
@@ -1903,17 +1999,21 @@
           ujScanStatus.textContent = `Mencoba memutar foto ${derajat} derajat...`;
           const sudut = (ujScanRotation + derajat) % 360;
           const diputar = await rotateDataUrl(ujScanOriginalDataUrl, sudut);
-          const hasil = await worker.recognize(diputar);
+          const hasil = await worker.recognize(diputar, {}, OCR_OUTPUT);
           const parsedPutar = parseSpr(hasil.data.text);
           if (countFieldsFound(parsedPutar) > countFieldsFound(parsed)) {
             data = hasil.data;
             parsed = parsedPutar;
+            gambarSumber = diputar;
             ujScanRotation = sudut;
             setScanImage(diputar);
           }
           if (countFieldsFound(parsed) >= 3) break;
         }
       }
+
+      ujScanStatus.textContent = "Memastikan nomor SPE...";
+      await perbaikiNomorSpe(worker, data, gambarSumber, parsed);
 
       lastOcrText = data.text;
       applyScanResult(parsed);
