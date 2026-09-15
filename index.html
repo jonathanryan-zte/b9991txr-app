@@ -1413,6 +1413,9 @@
   const POLA_NO_SPE = /\b[NRMH][o0]?\.?\s*[SB8]P[REB8]\s*[:;.\s]*([0-9]{5,})/i;
   const POLA_LABEL_SPE = /\b[NRMH][o0]?\.?\s*[SB8]P[REB8]\b/i;
 
+  // Teks watermark aplikasi kamera Timemark (alamat, hari/tanggal, label).
+  const BARIS_WATERMARK = /kabupaten|\bkab\b|banten|\bkec\b|\bkel\b|\bdesa\b|\bj[il1]n?\s*\.|\bjalan\b|timemark|akurat|absensi|keaslian|menjamin|verified/i;
+
   // Ambil nomor D/O dari potongan token di depan token gudang asal.
   function ambilNoDo(tokens) {
     for (const t of tokens) {
@@ -1500,8 +1503,16 @@
 
     for (let i = headerIdx + 1; i < lines.length; i++) {
       const l = lines[i];
-      // lewati watermark lokasi foto ("Kabupaten Pandeglang, Banten 42251")
-      if (/kabupaten|banten|\bkec\b|\bkel\b/i.test(l)) continue;
+      // Baris data ada DI ATAS "TOTAL COLIE/VOLUME/WEIGHT" dan kolom tanda
+      // tangan. Semua yang di bawahnya bukan isi tabel lagi -- termasuk
+      // watermark Timemark.
+      if (/total\s*col|colie|pembuat|penerima|menyetujui|mengetahui/i.test(l)) break;
+      // Lewati watermark Timemark. Baris alamatnya memuat kata "Pandeglang"
+      // ("Jl. Raya Serang - Pandeglang, Cadasari,") dan pernah menang sebagai
+      // baris data, menghasilkan Tujuan "Cadasari" tanpa customer. Karena
+      // teks lokasinya berubah-ubah, yang dikenali adalah pola umum alamat
+      // dan teks bawaan Timemark, bukan nama tempatnya.
+      if (BARIS_WATERMARK.test(l)) continue;
       // lewati baris identitas di kepala dokumen
       if (/salesman|stock\s*point|branch/i.test(l)) continue;
       // lewati baris header kolom itu sendiri
