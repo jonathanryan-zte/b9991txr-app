@@ -1655,18 +1655,44 @@
   let customerList = [];
   let noDoTerdaftar = {};
 
-  fetch(ENDPOINT + "?action=lookup")
-    .then((r) => r.json())
-    .then((data) => {
-      tujuanLookup = data.tujuan || {};
-      customerList = Array.isArray(data.customers) ? data.customers : [];
-      noDoTerdaftar = {};
-      (Array.isArray(data.noDoSpe) ? data.noDoSpe : []).forEach((v) => {
-        noDoTerdaftar[String(v).trim().toLowerCase()] = true;
-      });
-      cekNoDoDuplikat();
-    })
-    .catch(() => {});
+  // Histori dari Sheet dipakai untuk Uang Jalan otomatis, koreksi kota &
+  // customer hasil scan, dan peringatan No DO/SPE dobel. Web App Google
+  // kadang membalas halaman 404 HTML (nyata 15 Sep 2026, berkali-kali), jadi
+  // satu kali gagal tidak boleh mematikan semua itu sampai aplikasi dibuka
+  // ulang: dicoba lagi beberapa kali, dan dicoba lagi saat dibutuhkan.
+  let lookupSiap = false;
+  let lookupSedangMuat = null;
+
+  function muatLookup() {
+    if (lookupSiap) return Promise.resolve(true);
+    if (lookupSedangMuat) return lookupSedangMuat;
+    lookupSedangMuat = (async () => {
+      for (let percobaan = 0; percobaan < 3; percobaan++) {
+        try {
+          const r = await fetch(ENDPOINT + "?action=lookup");
+          const data = await r.json();
+          if (!data || typeof data.tujuan !== "object") throw new Error("format lookup");
+          tujuanLookup = data.tujuan || {};
+          customerList = Array.isArray(data.customers) ? data.customers : [];
+          noDoTerdaftar = {};
+          (Array.isArray(data.noDoSpe) ? data.noDoSpe : []).forEach((v) => {
+            noDoTerdaftar[String(v).trim().toLowerCase()] = true;
+          });
+          lookupSiap = true;
+          cekNoDoDuplikat();
+          // Tujuan mungkin sudah terisi selagi histori belum ada.
+          applyTujuanLookup();
+          return true;
+        } catch (err) {
+          await new Promise((res) => setTimeout(res, 3000 * (percobaan + 1)));
+        }
+      }
+      return false;
+    })().finally(() => { lookupSedangMuat = null; });
+    return lookupSedangMuat;
+  }
+
+  muatLookup();
 
   // Peringatan dini saja. Penolakan yang sebenarnya dilakukan Apps Script saat
   // menyimpan, karena daftar ini bisa basi -- baris bisa saja ditambah dari HP
@@ -1748,7 +1774,14 @@
     }
 
     if (!match) {
-      ujLookupHint.hidden = true;
+      if (key && !lookupSiap) {
+        // Kosongnya Uang Jalan harus ada penjelasannya, bukan diam saja.
+        ujLookupHint.hidden = false;
+        ujLookupHint.textContent = "Histori rute belum termuat dari Google (koneksi/server lambat). Sedang dicoba lagi; kalau tetap kosong, isi Uang Jalan manual.";
+        muatLookup();
+      } else {
+        ujLookupHint.hidden = true;
+      }
       return;
     }
 
@@ -2016,6 +2049,9 @@
     ujScanProgress.hidden = false;
     ujScanProgressBar.style.width = "0%";
     ujScanActions.hidden = true;
+    // Pastikan histori ikut dicoba dimuat selagi OCR berjalan: kota dan
+    // customer hasil scan dikoreksi terhadap histori itu.
+    const lookupPromise = muatLookup();
     try {
       const rotatedDataUrl = ujScanRotation === 0
         ? ujScanOriginalDataUrl
@@ -2059,6 +2095,16 @@
           }
           if (countFieldsFound(parsed) >= 3) break;
         }
+      }
+
+      if (!lookupSiap) {
+        ujScanStatus.textContent = "Memuat histori rute...";
+        const siap = await Promise.race([
+          lookupPromise,
+          new Promise((res) => setTimeout(() => res(false), 8000))
+        ]);
+        // baca ulang teks yang sama, kali ini dengan koreksi dari histori
+        if (siap) parsed = parseSpr(data.text);
       }
 
       ujScanStatus.textContent = "Memastikan nomor SPE...";
