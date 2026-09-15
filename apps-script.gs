@@ -263,47 +263,63 @@ function doPost(e) {
   }
 }
 
-function nextNo(sheet, col, startRow) {
+// Setiap panggilan ke Sheet (getLastRow, getRange, setValue, ...) makan waktu,
+// jadi menyimpan satu baris sengaja dibuat cukup satu kali baca dan satu kali
+// tulis. Versi lama membaca 3 kali dan menulis sel satu per satu (7 kali);
+// simpan sungguhan tercatat 1-3,5 detik di Executions, sementara POST yang
+// ditolak sebelum menyentuh Sheet hanya 0,3-0,5 detik.
+//
+// Membaca kolom A sampai numCols untuk semua baris data sekaligus.
+function bacaBarisData(sheet, startRow, numCols) {
   var lastRow = sheet.getLastRow();
-  if (lastRow < startRow) return 1;
-  var values = sheet.getRange(startRow, col, lastRow - startRow + 1, 1).getValues();
+  var rows = lastRow < startRow ? [] :
+    sheet.getRange(startRow, 1, lastRow - startRow + 1, numCols).getValues();
+  return { lastRow: lastRow, rows: rows };
+}
+
+// NO berikutnya dari kolom A (indeks 0) baris yang sudah dibaca. Dihitung dari
+// nilai terbesar, bukan lastRow+1, karena baris kadang diedit/diurutkan manual.
+function nextNo(rows) {
   var max = 0;
-  values.forEach(function(r) {
+  rows.forEach(function(r) {
     var n = Number(r[0]);
     if (!isNaN(n) && n > max) max = n;
   });
   return max + 1;
 }
 
+// setValues menolak undefined, sedangkan setValue lama menerimanya.
+function isi(v) {
+  return v === undefined || v === null ? '' : v;
+}
+
 function addPerbaikan(ss, body) {
   var sheet = ss.getSheetByName('PERBAIKAN');
-  var row = sheet.getLastRow() + 1;
-  var no = nextNo(sheet, 1, 3);
+  var data = bacaBarisData(sheet, 3, 1);
+  var row = data.lastRow + 1;
 
-  sheet.getRange(row, 1).setValue(no);            // A NO
-  sheet.getRange(row, 2).setValue(body.tanggal);  // B TANGGAL
-  sheet.getRange(row, 3).setValue(body.tindakan); // C TINDAKAN
-  sheet.getRange(row, 4).setValue(body.harga);    // D HARGA
-  sheet.getRange(row, 5).setValue(body.bayarKeBru); // E BAYAR KE BRU
-  sheet.getRange(row, 6).setFormula('=D' + row);  // F mirror formula
-  sheet.getRange(row, 7).setValue(body.keterangan || ''); // G KETERANGAN
+  sheet.getRange(row, 1, 1, 7).setValues([[
+    nextNo(data.rows),       // A NO
+    isi(body.tanggal),       // B TANGGAL
+    isi(body.tindakan),      // C TINDAKAN
+    isi(body.harga),         // D HARGA
+    isi(body.bayarKeBru),    // E BAYAR KE BRU
+    '=D' + row,              // F mirror formula (teks berawalan "=" ditulis sebagai formula)
+    isi(body.keterangan)     // G KETERANGAN
+  ]]);
 
   return row;
 }
 
-// Cari baris yang sudah memakai No DO/SPE yang sama. Dikembalikan nomor
-// barisnya supaya pesan penolakan bisa menyebut lokasinya di Sheet.
-function cariBarisNoDoSpe(sheet, noDoSpe) {
+// Cari baris yang sudah memakai No DO/SPE yang sama (kolom C, indeks 2).
+// Dikembalikan nomor barisnya supaya pesan penolakan bisa menyebut lokasinya.
+function cariBarisNoDoSpe(rows, startRow, noDoSpe) {
   var kunci = String(noDoSpe == null ? '' : noDoSpe).trim().toLowerCase();
   if (!kunci) return 0;
 
-  var lastRow = sheet.getLastRow();
-  if (lastRow < 3) return 0;
-
-  var data = sheet.getRange(3, 3, lastRow - 2, 1).getValues(); // C NO DO/SPE
-  for (var i = 0; i < data.length; i++) {
-    if (String(data[i][0] == null ? '' : data[i][0]).trim().toLowerCase() === kunci) {
-      return i + 3;
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i][2] == null ? '' : rows[i][2]).trim().toLowerCase() === kunci) {
+      return i + startRow;
     }
   }
   return 0;
@@ -311,10 +327,11 @@ function cariBarisNoDoSpe(sheet, noDoSpe) {
 
 function addUangJalan(ss, body) {
   var sheet = ss.getSheetByName('UANG JALAN');
+  var data = bacaBarisData(sheet, 3, 3); // A NO, B TANGGAL, C NO DO/SPE
 
   // Tolak sebelum menulis apa pun. No DO/SPE boleh kosong (opsional), tapi
   // kalau diisi tidak boleh sama dengan baris yang sudah ada.
-  var barisSama = cariBarisNoDoSpe(sheet, body.noDoSpe);
+  var barisSama = cariBarisNoDoSpe(data.rows, 3, body.noDoSpe);
   if (barisSama) {
     var err = new Error('No DO/SPE ' + String(body.noDoSpe).trim() +
       ' sudah pernah dicatat di baris ' + barisSama + '. Data tidak disimpan.');
@@ -322,31 +339,36 @@ function addUangJalan(ss, body) {
     throw err;
   }
 
-  var row = sheet.getLastRow() + 1;
-  var no = nextNo(sheet, 1, 3);
+  var row = data.lastRow + 1;
 
-  sheet.getRange(row, 1).setValue(no);              // A NO
-  sheet.getRange(row, 2).setValue(body.tanggal);    // B TANGGAL
-  sheet.getRange(row, 3).setValue(body.noDoSpe);    // C NO DO/SPE
-  sheet.getRange(row, 4).setValue(body.tujuan);     // D TUJUAN
-  sheet.getRange(row, 5).setValue(body.uangJalan);  // E UANG JALAN
+  sheet.getRange(row, 1, 1, 5).setValues([[
+    nextNo(data.rows),       // A NO
+    isi(body.tanggal),       // B TANGGAL
+    isi(body.noDoSpe),       // C NO DO/SPE
+    isi(body.tujuan),        // D TUJUAN
+    isi(body.uangJalan)      // E UANG JALAN
+  ]]);
   // F, G sengaja dilewati (hidden/tidak dipakai)
-  sheet.getRange(row, 8).setValue(body.invoice);    // H INVOICE
-  sheet.getRange(row, 9).setValue(body.customer);   // I CUSTOMER
+  sheet.getRange(row, 8, 1, 2).setValues([[
+    isi(body.invoice),       // H INVOICE
+    isi(body.customer)       // I CUSTOMER
+  ]]);
 
   return row;
 }
 
 function addTagihanCicilan(ss, body) {
   var sheet = ss.getSheetByName('TAGIHAN DAN CICILAN');
-  var row = sheet.getLastRow() + 1;
-  var no = nextNo(sheet, 1, 3);
+  var data = bacaBarisData(sheet, 3, 1);
+  var row = data.lastRow + 1;
 
-  sheet.getRange(row, 1).setValue(no);               // A NO
-  sheet.getRange(row, 2).setValue(body.bulan);       // B BULAN
-  sheet.getRange(row, 3).setValue(body.tagihan);     // C TAGIHAN
-  sheet.getRange(row, 4).setValue(body.cicilan);     // D CICILAN
-  sheet.getRange(row, 5).setValue(body.operasional); // E OPERASIONAL
+  sheet.getRange(row, 1, 1, 5).setValues([[
+    nextNo(data.rows),       // A NO
+    isi(body.bulan),         // B BULAN
+    isi(body.tagihan),       // C TAGIHAN
+    isi(body.cicilan),       // D CICILAN
+    isi(body.operasional)    // E OPERASIONAL
+  ]]);
 
   return row;
 }
