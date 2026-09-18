@@ -857,7 +857,7 @@
       <p class="masthead-eyebrow">Buku Catatan Keuangan</p>
       <h1>B 9991 TXR</h1>
       <p class="masthead-sub">Hino Dutro 2013 &middot; input langsung ke spreadsheet</p>
-      <p class="masthead-ver">versi 18 Sep 2026</p>
+      <p class="masthead-ver">versi 18 Sep 2026 (2)</p>
     </div>
     <div class="masthead-plate">HINO&nbsp;DUTRO<br>2013</div>
   </div>
@@ -2265,12 +2265,14 @@
   // yang sama, dan Apps Script menjawab "sudah ada" kalau memang sudah masuk.
   const BATAS_TUNGGU_MS = 90000;
 
-  async function sendToSheet(payload) {
-    const ctrl = new AbortController();
+  // ctrl dari pemanggil supaya antrian bisa membatalkan kiriman yang beku
+  // (lihat visibilitychange di bawah).
+  async function sendToSheet(payload, ctrl = new AbortController()) {
     const timer = setTimeout(() => ctrl.abort(), BATAS_TUNGGU_MS);
+    let res = null;
     let data;
     try {
-      const res = await fetch(ENDPOINT, {
+      res = await fetch(ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify(payload),
@@ -2280,6 +2282,12 @@
     } catch (e) {
       const err = new Error(e.name === "AbortError" ? "tidak ada jawaban dari server" : e.message);
       err.code = "BELUM_PASTI";
+      // Balasan yang datang lewat redirect ke googleusercontent (termasuk
+      // halaman 404-nya) berarti script.google.com sudah membalas 302, dan itu
+      // baru terjadi setelah doPost selesai jalan. Barisnya hampir pasti sudah
+      // tertulis; yang hilang cuma jawabannya. Beda dengan sinyal putus, yang
+      // bisa saja belum sampai ke server sama sekali.
+      err.sampaiServer = !!res && (res.redirected || /googleusercontent/.test(res.url));
       throw err;
     } finally {
       clearTimeout(timer);
@@ -2307,7 +2315,15 @@
   // Satu-satunya jawaban yang TIDAK dikirim ulang adalah DUPLIKAT (No DO/SPE
   // ganda): mengulang pasti ditolak lagi, jadi isian itu ditandai "ditolak"
   // dan menunggu operator memilih isi ulang ke form atau buang.
-  const JEDA_ULANG_MS = [5000, 15000, 30000, 60000, 120000];
+  // Pendek, karena setiap kegagalan Google sendiri sudah makan 10-50 dtk
+  // (404 di tahap kedua), dan kiriman ulang hanya satu eksekusi ringan yang
+  // dijawab "sudah ada". Jeda lama cuma membuat tanda "menunggu" bertahan
+  // padahal barisnya sudah di Sheet (terjadi 18 Sep 2026: 4 kali kirim
+  // selama 2 menit untuk satu baris yang masuk di kiriman pertama).
+  const JEDA_ULANG_MS = [3000, 5000, 10000, 20000, 30000];
+  // Kiriman yang sudah jalan selama ini ketika aplikasi dibuka kembali
+  // dianggap beku oleh iOS, dibatalkan, dan langsung dikirim ulang.
+  const BASI_SAAT_KEMBALI_MS = 15000;
   const LABEL_SHEET = { perbaikan: "Perbaikan", uangjalan: "Uang Jalan", tagihan: "Tagihan" };
   const antrianEl = document.getElementById("antrian");
   const antrianRingkas = document.getElementById("antrian-ringkas");
@@ -2316,6 +2332,9 @@
   const statusMilik = {}; // key form -> id isian yang sedang diceritakan status form itu
   let sedangKirim = false;
   let timerUlang = null;
+  let kirimCtrl = null;    // AbortController kiriman yang sedang jalan
+  let kirimMulai = 0;      // Date.now() saat kiriman itu dimulai
+  let ulangSegera = false; // dibatalkan karena beku: kirim ulang tanpa jeda
 
   function buatId() {
     const acak = new Uint32Array(2);
@@ -2354,6 +2373,7 @@
     let ringkas = "";
     if (menunggu.length) {
       if (offline) ringkas = `${menunggu.length} data menunggu sinyal. Dikirim otomatis begitu ada sinyal.`;
+      else if (menunggu[0].mungkinMasuk) ringkas = "Data kemungkinan besar sudah masuk Sheet, tapi jawaban Google belum sampai. Aplikasi sedang memastikan, tidak perlu diisi ulang.";
       else if (sedangKirim) ringkas = `Mengirim ${menunggu.length} data ke Sheet...`;
       else ringkas = `${menunggu.length} data belum terkirim. Server Google belum menjawab, dicoba lagi otomatis.`;
     }
@@ -2364,6 +2384,7 @@
     antrianList.innerHTML = antrian.map((x) => {
       let keadaan;
       if (x.status === "ditolak") keadaan = "Ditolak: " + esc(x.pesan);
+      else if (x.mungkinMasuk) keadaan = sedangKirim && x === menunggu[0] ? "memastikan..." : "kemungkinan sudah masuk, dipastikan lagi";
       else if (sedangKirim && x === menunggu[0]) keadaan = "mengirim...";
       else if (x.percobaan) keadaan = `gagal ${x.percobaan}x, dicoba lagi` + (x.percobaan >= 3 && x.pesan ? " (" + esc(x.pesan) + ")" : "");
       else keadaan = "menunggu";
@@ -2420,10 +2441,12 @@
     }
 
     sedangKirim = true;
+    kirimCtrl = new AbortController();
+    kirimMulai = Date.now();
     renderAntrian();
     let lanjut = true;
     try {
-      const hasil = await sendToSheet({ sheet: item.sheet, id: item.id, ...item.payload });
+      const hasil = await sendToSheet({ sheet: item.sheet, id: item.id, ...item.payload }, kirimCtrl);
       hapusDariAntrian(item.id);
       selesaiTerkirim(item, hasil);
       if (!antrian.some((x) => x.status === "antri")) loadRingkasan();
@@ -2436,15 +2459,23 @@
         // dan jangan lompat ke isian berikutnya supaya urutan NO tetap.
         item.percobaan = (item.percobaan || 0) + 1;
         item.pesan = err.message;
+        // Sekali terbukti sampai ke server, tetap dianggap begitu: kegagalan
+        // berikutnya (mis. sinyal putus) tidak membuat baris itu hilang.
+        if (err.sampaiServer) item.mungkinMasuk = true;
         simpanAntrian();
         lanjut = false;
-        timerUlang = setTimeout(kirimAntrian, JEDA_ULANG_MS[Math.min(item.percobaan, JEDA_ULANG_MS.length) - 1]);
+        const jeda = ulangSegera ? 0 : JEDA_ULANG_MS[Math.min(item.percobaan, JEDA_ULANG_MS.length) - 1];
+        timerUlang = setTimeout(kirimAntrian, jeda);
         if (statusMilik[item.key] === item.id) {
-          setStatus(item.key, "info", "Belum terkirim, server Google belum menjawab. Data <b>aman di HP</b> dan dicoba lagi otomatis.");
+          setStatus(item.key, "info", item.mungkinMasuk
+            ? "Kemungkinan besar <b>sudah masuk</b> ke Sheet, tapi jawaban Google belum sampai. Aplikasi sedang memastikan, <b>tidak perlu diisi ulang</b>."
+            : "Belum terkirim, server Google belum menjawab. Data <b>aman di HP</b> dan dicoba lagi otomatis.");
         }
       }
     } finally {
       sedangKirim = false;
+      kirimCtrl = null;
+      ulangSegera = false;
       renderAntrian();
     }
     if (lanjut) kirimAntrian();
@@ -2487,10 +2518,21 @@
 
   window.addEventListener("online", () => kirimAntrian());
   window.addEventListener("offline", renderAntrian);
-  // iOS membekukan aplikasi di latar belakang; begitu dibuka lagi langsung
-  // coba kirim tanpa menunggu sisa jeda.
+  // iOS membekukan aplikasi di latar belakang (mis. operator pindah ke Google
+  // Sheets untuk mengecek); begitu dibuka lagi langsung coba kirim tanpa
+  // menunggu sisa jeda. Kiriman yang sedang jalan saat dibekukan sering tidak
+  // pernah selesai, dan batas 90 dtk-nya ikut beku, jadi yang sudah jalan lama
+  // dibatalkan lalu dikirim ulang -- aman karena kode unik.
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") kirimAntrian();
+    if (document.visibilityState !== "visible") return;
+    if (sedangKirim) {
+      if (kirimCtrl && Date.now() - kirimMulai > BASI_SAAT_KEMBALI_MS) {
+        ulangSegera = true;
+        kirimCtrl.abort();
+      }
+      return;
+    }
+    kirimAntrian();
   });
 
   function wireForm(key, sheetName, buildPayload, buildLog, resetExtra) {
