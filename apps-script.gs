@@ -230,9 +230,31 @@ function buildTujuanLookup() {
   return { tujuan: map, customers: customers, noDoSpe: Object.keys(noDoSet) };
 }
 
+// Kolom kode unik kiriman aplikasi, di ujung kanan tiap tab setelah kolom
+// catatan manual (di UANG JALAN, J-L dipakai untuk catatan POTONG UJ).
+// Aplikasi menyimpan isian di HP lalu mengirim ulang sampai ada jawaban yang
+// jelas, karena jawaban Google bisa tertahan belasan detik atau hilang
+// padahal barisnya sudah tertulis. Kode inilah yang membuat kiriman ulang
+// dijawab "sudah ada" alih-alih menulis baris kedua.
+var KOLOM_ID = {
+  'PERBAIKAN': 9,            // I
+  'UANG JALAN': 13,          // M
+  'TAGIHAN DAN CICILAN': 11  // K
+};
+
 function doPost(e) {
+  // Kiriman ulang bisa tiba selagi kiriman pertama masih tertahan di Google.
+  // Tanpa kunci, keduanya sama-sama belum melihat kode unik yang lain lalu
+  // sama-sama menulis. Kunci ini juga mencegah dua simpan berebut NO.
+  var lock = LockService.getScriptLock();
   try {
     var body = JSON.parse(e.postData.contents);
+    if (!lock.tryLock(20000)) {
+      var sibuk = new Error('Server sedang sibuk, dicoba lagi.');
+      sibuk.code = 'SIBUK';
+      throw sibuk;
+    }
+
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var result;
 
@@ -250,24 +272,30 @@ function doPost(e) {
         throw new Error('sheet tidak dikenali: ' + body.sheet);
     }
 
+    // Tulisan harus benar-benar masuk sebelum kunci dilepas, supaya kiriman
+    // berikutnya yang menunggu kunci sudah bisa melihat kode unik baris ini.
+    SpreadsheetApp.flush();
+
     return ContentService.createTextOutput(
-      JSON.stringify({ status: 'ok', row: result })
+      JSON.stringify({ status: 'ok', row: result.row, sudahAda: !!result.sudahAda })
     ).setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {
     // code dipakai frontend untuk membedakan penolakan yang disengaja
-    // (mis. DUPLIKAT) dari kegagalan teknis.
+    // (DUPLIKAT, tidak dikirim ulang) dari kegagalan teknis (dikirim ulang).
     return ContentService.createTextOutput(
       JSON.stringify({ status: 'error', code: err.code || '', message: err.message })
     ).setMimeType(ContentService.MimeType.JSON);
+  } finally {
+    lock.releaseLock();
   }
 }
 
 // Setiap panggilan ke Sheet (getLastRow, getRange, setValue, ...) makan waktu,
-// jadi menyimpan satu baris sengaja dibuat cukup satu kali baca dan satu kali
-// tulis. Versi lama membaca 3 kali dan menulis sel satu per satu (7 kali);
-// simpan sungguhan tercatat 1-3,5 detik di Executions, sementara POST yang
-// ditolak sebelum menyentuh Sheet hanya 0,3-0,5 detik.
+// jadi menyimpan satu baris sengaja dibuat cukup satu kali baca. Versi lama
+// membaca 3 kali dan menulis sel satu per satu (7 kali); simpan sungguhan
+// tercatat 1-3,5 detik di Executions, sementara POST yang ditolak sebelum
+// menyentuh Sheet hanya 0,3-0,5 detik.
 //
 // Membaca kolom A sampai numCols untuk semua baris data sekaligus.
 function bacaBarisData(sheet, startRow, numCols) {
@@ -293,9 +321,34 @@ function isi(v) {
   return v === undefined || v === null ? '' : v;
 }
 
+// Baris yang sudah memakai kode unik kiriman ini, atau 0. Kiriman dari
+// aplikasi versi lama tidak membawa kode dan selalu ditulis.
+function cariBarisId(rows, startRow, kolomId, id) {
+  var kunci = String(isi(id)).trim();
+  if (!kunci) return 0;
+  for (var i = 0; i < rows.length; i++) {
+    if (String(isi(rows[i][kolomId - 1])).trim() === kunci) return i + startRow;
+  }
+  return 0;
+}
+
+// Kode unik ditulis PALING AKHIR. Kalau eksekusi berhenti di tengah, baris
+// setengah jadi tanpa kode akan terlihat di Sheet dan kiriman ulang menulis
+// baris lengkap; sebaliknya (kode dulu) kiriman ulang akan dijawab "sudah
+// ada" dan baris yang tidak lengkap itu lolos tanpa ketahuan.
+function tulisId(sheet, row, kolomId, id) {
+  var kunci = String(isi(id)).trim();
+  if (kunci) sheet.getRange(row, kolomId).setValue(kunci);
+}
+
 function addPerbaikan(ss, body) {
   var sheet = ss.getSheetByName('PERBAIKAN');
-  var data = bacaBarisData(sheet, 3, 1);
+  var kolomId = KOLOM_ID['PERBAIKAN'];
+  var data = bacaBarisData(sheet, 3, kolomId);
+
+  var sudahAda = cariBarisId(data.rows, 3, kolomId, body.id);
+  if (sudahAda) return { row: sudahAda, sudahAda: true };
+
   var row = data.lastRow + 1;
 
   sheet.getRange(row, 1, 1, 7).setValues([[
@@ -307,8 +360,9 @@ function addPerbaikan(ss, body) {
     '=D' + row,              // F mirror formula (teks berawalan "=" ditulis sebagai formula)
     isi(body.keterangan)     // G KETERANGAN
   ]]);
+  tulisId(sheet, row, kolomId, body.id); // I
 
-  return row;
+  return { row: row };
 }
 
 // Cari baris yang sudah memakai No DO/SPE yang sama (kolom C, indeks 2).
@@ -327,7 +381,14 @@ function cariBarisNoDoSpe(rows, startRow, noDoSpe) {
 
 function addUangJalan(ss, body) {
   var sheet = ss.getSheetByName('UANG JALAN');
-  var data = bacaBarisData(sheet, 3, 3); // A NO, B TANGGAL, C NO DO/SPE
+  var kolomId = KOLOM_ID['UANG JALAN'];
+  var data = bacaBarisData(sheet, 3, kolomId); // A NO, C NO DO/SPE, M kode unik
+
+  // Cek kode unik SEBELUM cek No DO/SPE: kiriman ulang dari baris yang sudah
+  // tertulis pasti memakai No DO/SPE yang sama, dan tidak boleh dijawab
+  // "ditolak, duplikat" -- baris itu memang baris dia sendiri.
+  var sudahAda = cariBarisId(data.rows, 3, kolomId, body.id);
+  if (sudahAda) return { row: sudahAda, sudahAda: true };
 
   // Tolak sebelum menulis apa pun. No DO/SPE boleh kosong (opsional), tapi
   // kalau diisi tidak boleh sama dengan baris yang sudah ada.
@@ -353,13 +414,20 @@ function addUangJalan(ss, body) {
     isi(body.invoice),       // H INVOICE
     isi(body.customer)       // I CUSTOMER
   ]]);
+  // J-L catatan manual, tidak disentuh
+  tulisId(sheet, row, kolomId, body.id); // M
 
-  return row;
+  return { row: row };
 }
 
 function addTagihanCicilan(ss, body) {
   var sheet = ss.getSheetByName('TAGIHAN DAN CICILAN');
-  var data = bacaBarisData(sheet, 3, 1);
+  var kolomId = KOLOM_ID['TAGIHAN DAN CICILAN'];
+  var data = bacaBarisData(sheet, 3, kolomId);
+
+  var sudahAda = cariBarisId(data.rows, 3, kolomId, body.id);
+  if (sudahAda) return { row: sudahAda, sudahAda: true };
+
   var row = data.lastRow + 1;
 
   sheet.getRange(row, 1, 1, 5).setValues([[
@@ -369,6 +437,8 @@ function addTagihanCicilan(ss, body) {
     isi(body.cicilan),       // D CICILAN
     isi(body.operasional)    // E OPERASIONAL
   ]]);
+  // F-J catatan & ringkasan manual, tidak disentuh
+  tulisId(sheet, row, kolomId, body.id); // K
 
-  return row;
+  return { row: row };
 }

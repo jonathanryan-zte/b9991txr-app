@@ -611,15 +611,80 @@
 
   .status b { color: inherit; }
 
-  .status-link {
-    font: inherit;
-    font-weight: 600;
-    color: inherit;
-    background: none;
-    border: 0;
-    padding: 0;
-    text-decoration: underline;
-    cursor: pointer;
+  /* ---------- Antrian kirim ---------- */
+
+  /* Terlihat di semua tab selama ada isian yang belum dipastikan masuk Sheet:
+     data di sini hanya ada di HP, jadi tidak boleh tersembunyi. */
+  .antrian {
+    background: var(--accent-soft);
+    color: var(--ink);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    margin-bottom: 16px;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .antrian.ada-ditolak { background: var(--danger-soft); }
+
+  .antrian-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .antrian-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex-shrink: 0;
+  }
+
+  .antrian.ada-ditolak .antrian-dot { background: var(--danger); }
+  .antrian.mengirim .antrian-dot { animation: denyut 1s ease-in-out infinite; }
+
+  @keyframes denyut {
+    50% { opacity: 0.25; }
+  }
+
+  .antrian-ringkas {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .antrian-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 10px;
+  }
+
+  .antrian-item {
+    background: var(--surface);
+    border-radius: 7px;
+    padding: 8px 10px;
+  }
+
+  .antrian-item-main {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .antrian-item-meta {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--ink-muted);
+  }
+
+  .antrian-item.ditolak .antrian-item-meta { color: var(--danger); }
+
+  .antrian-item-aksi {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
   }
 
   /* ---------- Ringkasan ---------- */
@@ -762,6 +827,9 @@
     flex-shrink: 0;
   }
 
+  .log-status.menunggu { color: var(--accent); }
+  .log-status.ditolak { color: var(--danger); }
+
   @keyframes fadeIn {
     from { opacity: 0; transform: translateY(-3px); }
     to { opacity: 1; transform: translateY(0); }
@@ -789,7 +857,7 @@
       <p class="masthead-eyebrow">Buku Catatan Keuangan</p>
       <h1>B 9991 TXR</h1>
       <p class="masthead-sub">Hino Dutro 2013 &middot; input langsung ke spreadsheet</p>
-      <p class="masthead-ver">versi 15 Sep 2026</p>
+      <p class="masthead-ver">versi 18 Sep 2026</p>
     </div>
     <div class="masthead-plate">HINO&nbsp;DUTRO<br>2013</div>
   </div>
@@ -799,6 +867,15 @@
     <button class="tab" data-panel="uangjalan" role="tab" aria-selected="false">Uang Jalan</button>
     <button class="tab" data-panel="tagihan" role="tab" aria-selected="false">Tagihan &amp; Cicilan</button>
     <button class="tab" data-panel="ringkasan" role="tab" aria-selected="false">Ringkasan</button>
+  </div>
+
+  <div class="antrian" id="antrian" hidden>
+    <div class="antrian-head">
+      <span class="antrian-dot"></span>
+      <span class="antrian-ringkas" id="antrian-ringkas"></span>
+      <button type="button" class="scan-mini-btn" id="antrian-kirim" hidden>Kirim sekarang</button>
+    </div>
+    <div class="antrian-list" id="antrian-list"></div>
   </div>
 
   <div class="scan-accordion" id="scan-accordion">
@@ -1049,6 +1126,32 @@
   const idr = new Intl.NumberFormat("id-ID");
   const counts = { perbaikan: 0, uangjalan: 0, tagihan: 0 };
 
+  // Antrian kirim: isian yang belum dipastikan masuk Sheet, disimpan di HP.
+  // Dideklarasikan di awal karena cekNoDoDuplikat ikut membacanya. Cara
+  // kerjanya ada di bagian "antrian kirim" di bawah.
+  const KUNCI_ANTRIAN = "b9991txr-antrian-v1";
+  let antrian = bacaAntrian();
+
+  function bacaAntrian() {
+    try {
+      const v = JSON.parse(localStorage.getItem(KUNCI_ANTRIAN) || "[]");
+      return Array.isArray(v) ? v : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // false kalau HP menolak menyimpan (mis. mode privat): isian tetap dikirim,
+  // tapi hilang kalau aplikasi ditutup sebelum terkirim.
+  function simpanAntrian() {
+    try {
+      localStorage.setItem(KUNCI_ANTRIAN, JSON.stringify(antrian));
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   // ---- tabs ----
   const tabs = document.querySelectorAll(".tab");
   tabs.forEach(tab => {
@@ -1088,25 +1191,24 @@
     el.className = "status";
   }
 
-  // Tombol di dalam pesan status (mis. "Buka Ringkasan") dibuat lewat
-  // innerHTML, jadi klik-nya ditangkap di document.
-  document.addEventListener("click", (e) => {
-    const link = e.target.closest("[data-buka-tab]");
-    if (!link) return;
-    document.querySelector(`.tab[data-panel="${link.dataset.bukaTab}"]`).click();
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  });
-
-  function addLogRow(key, main, meta) {
+  function addLogRow(key, main, meta, id) {
     const wrap = document.getElementById("log-wrap-" + key);
     const list = document.getElementById("log-" + key);
     wrap.hidden = false;
     const row = document.createElement("div");
     row.className = "log-item";
-    row.innerHTML = `<span class="log-item-main">${main}</span><span class="log-item-meta">${meta}</span>`;
+    row.dataset.id = id;
+    row.innerHTML = `<span class="log-item-main">${main}</span><span class="log-item-meta">${meta} <span class="log-status menunggu">&middot; menunggu</span></span>`;
     list.prepend(row);
     counts[key] += 1;
     document.getElementById("count-" + key).textContent = counts[key] + " dicatat sesi ini";
+  }
+
+  function perbaruiLog(id, teks, kelas) {
+    const el = document.querySelector(`.log-item[data-id="${id}"] .log-status`);
+    if (!el) return; // isian dari sesi sebelumnya, tidak punya baris log
+    el.className = "log-status " + kelas;
+    el.innerHTML = "&middot; " + teks;
   }
 
   // ---- scan OCR (Uang Jalan) ----
@@ -1702,7 +1804,11 @@
 
   function cekNoDoDuplikat() {
     const v = ujNoDoInput.value.trim().toLowerCase();
-    const duplikat = !!v && noDoTerdaftar[v];
+    // Isian yang masih di antrian belum ada di Sheet, tapi nomornya sudah
+    // terpakai: kalau dicatat lagi, salah satunya pasti ditolak nanti.
+    const diAntrian = antrian.some((x) => x.key === "uangjalan" && x.status === "antri" &&
+      String(x.payload.noDoSpe || "").trim().toLowerCase() === v);
+    const duplikat = !!v && (!!noDoTerdaftar[v] || diAntrian);
     ujNoDoHint.hidden = !duplikat;
     ujNoDoInput.classList.toggle("dup-warn", duplikat);
     if (duplikat) {
@@ -2155,10 +2261,9 @@
   // skripnya sudah lama selesai (terukur 15 Sep 2026: skrip jalan 0,6 dtk,
   // jawaban baru datang 16 dtk), dan sesekali membalas halaman error HTML
   // alih-alih JSON. Dalam kedua kasus itu baris bisa saja SUDAH tertulis, jadi
-  // tidak boleh dilaporkan sebagai "gagal": user akan kirim ulang dan barisnya
-  // dobel -- Perbaikan & Tagihan tidak punya cek duplikat seperti No DO/SPE.
+  // hasilnya BELUM_PASTI, bukan gagal: antrian mengirim ulang dengan kode unik
+  // yang sama, dan Apps Script menjawab "sudah ada" kalau memang sudah masuk.
   const BATAS_TUNGGU_MS = 90000;
-  const TANDA_LAMBAT_MS = 5000;
 
   async function sendToSheet(payload) {
     const ctrl = new AbortController();
@@ -2187,70 +2292,261 @@
     return data;
   }
 
-  function wireForm(key, sheetName, buildPayload, buildLog, resetExtra, onSaved) {
+  // ---- antrian kirim ----
+  // Operator tidak ditahan menunggu Google. Tombol simpan hanya memasukkan
+  // isian ke antrian di HP (localStorage) lalu form langsung kosong lagi;
+  // pengiriman jalan sendiri, satu per satu sesuai urutan, dan diulang sampai
+  // Apps Script memberi jawaban yang jelas. Isian baru dihapus dari HP setelah
+  // Apps Script memastikan barisnya ada.
+  //
+  // Aman dikirim ulang karena setiap isian membawa kode unik (kolom I/M/K di
+  // Sheet): kalau baris dengan kode itu sudah ada, Apps Script menjawab
+  // "sudahAda" tanpa menulis lagi, dan kunci di doPost mencegah kiriman ulang
+  // menyalip kiriman pertama yang masih tertahan di Google.
+  //
+  // Satu-satunya jawaban yang TIDAK dikirim ulang adalah DUPLIKAT (No DO/SPE
+  // ganda): mengulang pasti ditolak lagi, jadi isian itu ditandai "ditolak"
+  // dan menunggu operator memilih isi ulang ke form atau buang.
+  const JEDA_ULANG_MS = [5000, 15000, 30000, 60000, 120000];
+  const LABEL_SHEET = { perbaikan: "Perbaikan", uangjalan: "Uang Jalan", tagihan: "Tagihan" };
+  const antrianEl = document.getElementById("antrian");
+  const antrianRingkas = document.getElementById("antrian-ringkas");
+  const antrianList = document.getElementById("antrian-list");
+  const antrianKirimBtn = document.getElementById("antrian-kirim");
+  const statusMilik = {}; // key form -> id isian yang sedang diceritakan status form itu
+  let sedangKirim = false;
+  let timerUlang = null;
+
+  function buatId() {
+    const acak = new Uint32Array(2);
+    crypto.getRandomValues(acak);
+    // Diawali huruf supaya Sheets tidak mengubahnya jadi angka/tanggal.
+    return "app-" + Date.now().toString(36) + "-" + acak[0].toString(36) + acak[1].toString(36);
+  }
+
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  }
+
+  // Nilai mentah semua kolom form, untuk "Isi ulang ke form" kalau ditolak.
+  function ambilIsian(form) {
+    const isian = {};
+    form.querySelectorAll("input[id], select[id], textarea[id]").forEach((el) => {
+      if (el.type !== "file") isian[el.id] = el.value;
+    });
+    return isian;
+  }
+
+  function namaSheet(item) {
+    return item.sheet.replace("_", " ");
+  }
+
+  function renderAntrian() {
+    antrianEl.hidden = antrian.length === 0;
+    if (!antrian.length) return;
+
+    const menunggu = antrian.filter((x) => x.status === "antri");
+    const ditolak = antrian.filter((x) => x.status === "ditolak");
+    const offline = navigator.onLine === false;
+    antrianEl.classList.toggle("ada-ditolak", ditolak.length > 0);
+    antrianEl.classList.toggle("mengirim", sedangKirim);
+
+    let ringkas = "";
+    if (menunggu.length) {
+      if (offline) ringkas = `${menunggu.length} data menunggu sinyal. Dikirim otomatis begitu ada sinyal.`;
+      else if (sedangKirim) ringkas = `Mengirim ${menunggu.length} data ke Sheet...`;
+      else ringkas = `${menunggu.length} data belum terkirim. Server Google belum menjawab, dicoba lagi otomatis.`;
+    }
+    if (ditolak.length) ringkas += `${ringkas ? " " : ""}${ditolak.length} data ditolak Sheet, perlu diperiksa.`;
+    antrianRingkas.textContent = ringkas;
+    antrianKirimBtn.hidden = !(menunggu.length && !sedangKirim && !offline);
+
+    antrianList.innerHTML = antrian.map((x) => {
+      let keadaan;
+      if (x.status === "ditolak") keadaan = "Ditolak: " + esc(x.pesan);
+      else if (sedangKirim && x === menunggu[0]) keadaan = "mengirim...";
+      else if (x.percobaan) keadaan = `gagal ${x.percobaan}x, dicoba lagi` + (x.percobaan >= 3 && x.pesan ? " (" + esc(x.pesan) + ")" : "");
+      else keadaan = "menunggu";
+      const aksi = x.status !== "ditolak" ? "" : `
+        <div class="antrian-item-aksi">
+          <button type="button" class="scan-mini-btn" data-aksi="isi-ulang" data-id="${x.id}">Isi ulang ke form</button>
+          <button type="button" class="scan-mini-btn" data-aksi="buang" data-id="${x.id}">Buang</button>
+        </div>`;
+      return `<div class="antrian-item ${x.status}">
+        <div class="antrian-item-main">${LABEL_SHEET[x.key]} &middot; ${x.log[0]}</div>
+        <div class="antrian-item-meta">${x.log[1]} &middot; ${keadaan}</div>${aksi}
+      </div>`;
+    }).join("");
+  }
+
+  function hapusDariAntrian(id) {
+    antrian = antrian.filter((x) => x.id !== id);
+    simpanAntrian();
+  }
+
+  function selesaiTerkirim(item, hasil) {
+    perbaruiLog(item.id, "baris " + hasil.row, "");
+    if (statusMilik[item.key] === item.id) {
+      setStatus(item.key, "ok", `Tersimpan &middot; baris <b>${hasil.row}</b> di sheet ${namaSheet(item)}`);
+    }
+    if (item.key === "uangjalan" && item.payload.noDoSpe) {
+      noDoTerdaftar[String(item.payload.noDoSpe).trim().toLowerCase()] = true;
+    }
+  }
+
+  function tandaiDitolak(item, err) {
+    item.status = "ditolak";
+    item.pesan = err.message;
+    simpanAntrian();
+    perbaruiLog(item.id, "ditolak", "ditolak");
+    if (statusMilik[item.key] === item.id) {
+      setStatus(item.key, "err", "Ditolak &middot; " + esc(err.message) + " Pilih isi ulang atau buang di kotak paling atas.");
+    }
+    if (item.key === "uangjalan" && item.payload.noDoSpe) {
+      noDoTerdaftar[String(item.payload.noDoSpe).trim().toLowerCase()] = true;
+      cekNoDoDuplikat();
+    }
+  }
+
+  async function kirimAntrian() {
+    if (sedangKirim) return;
+    clearTimeout(timerUlang);
+    timerUlang = null;
+    const item = antrian.find((x) => x.status === "antri");
+    // Tanpa sinyal tidak dicoba: event "online" yang membangunkan lagi.
+    if (!item || navigator.onLine === false) {
+      renderAntrian();
+      return;
+    }
+
+    sedangKirim = true;
+    renderAntrian();
+    let lanjut = true;
+    try {
+      const hasil = await sendToSheet({ sheet: item.sheet, id: item.id, ...item.payload });
+      hapusDariAntrian(item.id);
+      selesaiTerkirim(item, hasil);
+      if (!antrian.some((x) => x.status === "antri")) loadRingkasan();
+    } catch (err) {
+      if (err.code === "DUPLIKAT") {
+        tandaiDitolak(item, err);
+      } else {
+        // BELUM_PASTI, SIBUK, atau error lain dari Apps Script: kirim ulang
+        // aman karena kode unik. Tunggu dulu supaya tidak membanjiri Google,
+        // dan jangan lompat ke isian berikutnya supaya urutan NO tetap.
+        item.percobaan = (item.percobaan || 0) + 1;
+        item.pesan = err.message;
+        simpanAntrian();
+        lanjut = false;
+        timerUlang = setTimeout(kirimAntrian, JEDA_ULANG_MS[Math.min(item.percobaan, JEDA_ULANG_MS.length) - 1]);
+        if (statusMilik[item.key] === item.id) {
+          setStatus(item.key, "info", "Belum terkirim, server Google belum menjawab. Data <b>aman di HP</b> dan dicoba lagi otomatis.");
+        }
+      }
+    } finally {
+      sedangKirim = false;
+      renderAntrian();
+    }
+    if (lanjut) kirimAntrian();
+  }
+
+  antrianKirimBtn.addEventListener("click", () => kirimAntrian());
+
+  antrianList.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-aksi]");
+    if (!btn) return;
+    const item = antrian.find((x) => x.id === btn.dataset.id);
+    if (!item) return;
+
+    if (btn.dataset.aksi === "buang") {
+      if (!confirm("Buang data ini? Data ini tidak akan masuk ke Sheet.")) return;
+      hapusDariAntrian(item.id);
+      renderAntrian();
+      perbaruiLog(item.id, "dibuang", "ditolak");
+      if (statusMilik[item.key] === item.id) setStatus(item.key, "info", "Data dibuang, tidak masuk ke Sheet.");
+      return;
+    }
+
+    // isi-ulang: kembalikan isian ke form-nya untuk diperbaiki, lalu simpan
+    // lagi sebagai isian baru (kode unik baru).
+    document.querySelector(`.tab[data-panel="${item.key}"]`).click();
+    Object.entries(item.isian || {}).forEach(([id, v]) => {
+      const el = document.getElementById(id);
+      if (el) el.value = v;
+    });
+    hapusDariAntrian(item.id);
+    renderAntrian();
+    setStatus(item.key, "info", "Data dikembalikan ke form. Perbaiki lalu simpan lagi.");
+    if (item.key === "uangjalan") {
+      cekNoDoDuplikat();
+      ujNoDoInput.focus();
+    } else {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  });
+
+  window.addEventListener("online", () => kirimAntrian());
+  window.addEventListener("offline", renderAntrian);
+  // iOS membekukan aplikasi di latar belakang; begitu dibuka lagi langsung
+  // coba kirim tanpa menunggu sisa jeda.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") kirimAntrian();
+  });
+
+  function wireForm(key, sheetName, buildPayload, buildLog, resetExtra) {
     const form = document.getElementById("form-" + key);
-    form.addEventListener("submit", async (e) => {
+    const btn = form.querySelector(".submit");
+    form.addEventListener("submit", (e) => {
       e.preventDefault();
       clearStatus(key);
-      const btn = form.querySelector(".submit");
       const payload = buildPayload();
       if (payload === null) {
         setStatus(key, "err", "Lengkapi kolom yang wajib diisi.");
         return;
       }
-      // Tanpa sinyal, permintaan pasti belum terkirim -- aman untuk bilang
-      // "belum terkirim", beda dengan kasus BELUM_PASTI di bawah.
-      if (navigator.onLine === false) {
-        setStatus(key, "err", "Tidak ada sinyal internet. Data <b>belum terkirim</b>, coba simpan lagi setelah ada sinyal.");
+      // Di antrian, penolakan No DO/SPE ganda baru ketahuan setelah form
+      // kosong. Yang sudah jelas ganda (histori Sheet atau antrian) ditolak di
+      // sini selagi isiannya masih di layar.
+      if (key === "uangjalan" && cekNoDoDuplikat()) {
+        setStatus(key, "err", "Ditolak &middot; No DO/SPE ini sudah pernah dicatat. Periksa lagi nomornya.");
+        ujNoDoInput.focus();
         return;
       }
+
+      const item = {
+        id: buatId(),
+        key,
+        sheet: sheetName,
+        payload,
+        isian: ambilIsian(form),
+        log: buildLog(payload),
+        dibuat: Date.now(),
+        percobaan: 0,
+        status: "antri",
+        pesan: ""
+      };
+      antrian.push(item);
+      const amanDiHp = simpanAntrian();
+      statusMilik[key] = item.id;
+
+      let pesan = navigator.onLine === false
+        ? `Tidak ada sinyal. Data dicatat di HP dan dikirim ke sheet ${namaSheet(item)} begitu ada sinyal.`
+        : `Tercatat &middot; sedang dikirim ke sheet ${namaSheet(item)}. Boleh lanjut isi data lain.`;
+      if (!amanDiHp) pesan += " <b>Jangan tutup aplikasi</b> sampai terkirim.";
+      setStatus(key, "info", pesan);
+      addLogRow(key, item.log[0], item.log[1], item.id);
+
+      form.reset();
+      if (resetExtra) resetExtra();
+      // Form sudah kosong, jadi ketukan ganda hanya akan menimpa pesan di atas
+      // dengan "Lengkapi kolom". Tahan tombol sebentar.
       btn.disabled = true;
-      btn.textContent = "Menyimpan...";
-      const tandaLambat = setTimeout(() => {
-        btn.textContent = "Masih menyimpan...";
-        setStatus(key, "info", "Server Google sedang lambat. <b>Jangan tutup aplikasi</b>, data sedang dikirim.");
-      }, TANDA_LAMBAT_MS);
-      try {
-        const result = await sendToSheet({ sheet: sheetName, ...payload });
-        setStatus(key, "ok", `Tersimpan &middot; baris <b>${result.row}</b> di sheet ${sheetName.replace("_"," ")}`);
-        const [main, meta] = buildLog(payload);
-        addLogRow(key, main, meta);
-        if (onSaved) onSaved(payload);
-        form.reset();
-        if (resetExtra) resetExtra();
-        loadRingkasan();
-      } catch (err) {
-        // Penolakan yang disengaja (mis. No DO/SPE dobel) bukan kegagalan
-        // teknis, jadi pesannya tidak diawali "Gagal menyimpan". Form sengaja
-        // TIDAK di-reset di jalur ini supaya isian user tidak hilang.
-        if (err.code === "DUPLIKAT") {
-          setStatus(key, "err", "Ditolak &middot; " + err.message);
-          if (key === "uangjalan") {
-            noDoTerdaftar[document.getElementById("uj-nodo").value.trim().toLowerCase()] = true;
-            cekNoDoDuplikat();
-            document.getElementById("uj-nodo").focus();
-          }
-        } else if (err.code === "BELUM_PASTI") {
-          // Form tidak di-reset: kalau ternyata belum masuk, user tinggal
-          // tekan simpan lagi tanpa mengetik ulang.
-          setStatus(key, "info",
-            "<b>Belum pasti tersimpan.</b> Server Google tidak memberi jawaban yang jelas, " +
-            "padahal data bisa saja sudah masuk. Cek dulu di Ringkasan sebelum simpan lagi, " +
-            "supaya tidak tercatat dua kali. " +
-            '<button type="button" class="status-link" data-buka-tab="ringkasan">Buka Ringkasan</button>');
-        } else {
-          setStatus(key, "err", "Gagal menyimpan: " + err.message);
-        }
-      } finally {
-        clearTimeout(tandaLambat);
-        btn.disabled = false;
-        btn.textContent = btn.dataset.label || btn.textContent.replace("Menyimpan...", "");
-      }
+      setTimeout(() => { btn.disabled = false; }, 1200);
+
+      renderAntrian();
+      kirimAntrian();
     });
   }
-
-  // restore original button labels after async work
-  document.querySelectorAll(".submit").forEach(b => b.dataset.label = b.textContent);
 
   // ---- PERBAIKAN ----
   wireForm("perbaikan", "PERBAIKAN", () => {
@@ -2290,10 +2586,7 @@
     resetScan();
     ujLookupHint.hidden = true;
     cekNoDoDuplikat();
-  },
-  // catat No DO/SPE yang baru tersimpan supaya langsung terdeteksi kalau
-  // nomor yang sama diisikan lagi tanpa perlu memuat ulang halaman
-  (p) => { if (p.noDoSpe) noDoTerdaftar[String(p.noDoSpe).trim().toLowerCase()] = true; });
+  });
 
   // ---- TAGIHAN & CICILAN ----
   wireForm("tagihan", "TAGIHAN_CICILAN", () => {
@@ -2304,6 +2597,11 @@
     if (!bulan || tagihan === "" || cicilan === "" || operasional === "") return null;
     return { bulan, tagihan: Number(tagihan), cicilan: Number(cicilan), operasional: Number(operasional) };
   }, (p) => [p.bulan, "Rp" + idr.format(p.tagihan)]);
+
+  // Isian yang tertinggal dari sesi sebelumnya (aplikasi ditutup sebelum
+  // terkirim) langsung dikirim begitu aplikasi dibuka.
+  renderAntrian();
+  kirimAntrian();
 
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
